@@ -7,7 +7,6 @@ import json
 
 def setup_drive_service():
     """Setup Google Drive service using service account credentials"""
-    # Service account info - you'll need to set this as an environment variable
     service_account_info = json.loads(os.environ['GDRIVE_SERVICE_ACCOUNT_KEY'])
     
     credentials = service_account.Credentials.from_service_account_info(
@@ -21,8 +20,6 @@ def setup_drive_service():
 def download_file(service, file_id, file_name, destination_folder='.'):
     """Download a file from Google Drive"""
     try:
-        # Get file metadata
-        file_metadata = service.files().get(fileId=file_id).execute()
         print(f"Downloading: {file_name}")
         
         # Create destination path
@@ -49,13 +46,17 @@ def download_file(service, file_id, file_name, destination_folder='.'):
         print(f"Error downloading {file_name}: {str(e)}")
         return False
 
-def list_and_download_folder_contents(service, folder_id, destination_folder='.'):
-    """List and download all files in a Google Drive folder"""
+def download_folder_recursively(service, folder_id, destination_folder='.', folder_name=None):
+    """Recursively download all files and subfolders from a Google Drive folder"""
     try:
         # Create destination folder if it doesn't exist
+        if folder_name:
+            destination_folder = os.path.join(destination_folder, folder_name)
         os.makedirs(destination_folder, exist_ok=True)
         
-        # List all files in the folder
+        print(f"\nProcessing folder: {destination_folder}")
+        
+        # List all files and folders in the current folder
         query = f"'{folder_id}' in parents and trashed=false"
         results = service.files().list(
             q=query,
@@ -66,9 +67,9 @@ def list_and_download_folder_contents(service, folder_id, destination_folder='.'
         
         if not files:
             print(f"No files found in folder {folder_id}")
-            return
+            return 0
         
-        print(f"Found {len(files)} files in the folder:")
+        print(f"Found {len(files)} items in this folder")
         
         downloaded_count = 0
         for file in files:
@@ -78,27 +79,42 @@ def list_and_download_folder_contents(service, folder_id, destination_folder='.'
             
             print(f"\n- {file_name} (Type: {mime_type})")
             
-            # Skip Google Drive native formats (Docs, Sheets, etc.) for now
-            if mime_type.startswith('application/vnd.google-apps'):
+            # If it's a folder, recurse into it
+            if mime_type == 'application/vnd.google-apps.folder':
+                print(f"  Entering subfolder: {file_name}")
+                subfolder_count = download_folder_recursively(
+                    service, file_id, destination_folder, file_name
+                )
+                downloaded_count += subfolder_count
+            
+            # Skip other Google Drive native formats (Docs, Sheets, etc.)
+            elif mime_type.startswith('application/vnd.google-apps'):
                 print(f"  Skipping Google native format: {mime_type}")
                 continue
             
-            # Download the file
-            if download_file(service, file_id, file_name, destination_folder):
-                downloaded_count += 1
+            # Download regular files
+            else:
+                if download_file(service, file_id, file_name, destination_folder):
+                    downloaded_count += 1
         
-        print(f"\nDownload complete! Downloaded {downloaded_count} files to '{destination_folder}'")
+        return downloaded_count
         
-        # List downloaded files
-        print("\nDownloaded files:")
-        for file in os.listdir(destination_folder):
-            file_path = os.path.join(destination_folder, file)
-            if os.path.isfile(file_path):
-                size = os.path.getsize(file_path)
-                print(f"  - {file} ({size} bytes)")
-                
     except Exception as e:
-        print(f"Error accessing folder: {str(e)}")
+        print(f"Error accessing folder {folder_id}: {str(e)}")
+        return 0
+
+def list_all_downloaded_files(root_folder):
+    """List all downloaded files recursively"""
+    print(f"\nAll downloaded files in '{root_folder}':")
+    total_files = 0
+    for root, dirs, files in os.walk(root_folder):
+        for file in files:
+            file_path = os.path.join(root, file)
+            size = os.path.getsize(file_path)
+            relative_path = os.path.relpath(file_path, root_folder)
+            print(f"  - {relative_path} ({size} bytes)")
+            total_files += 1
+    print(f"\nTotal files downloaded: {total_files}")
 
 def main():
     """Main function to download all files from Google Drive folder"""
@@ -110,7 +126,12 @@ def main():
     service = setup_drive_service()
     
     print(f"Downloading contents from folder ID: {FOLDER_ID}")
-    list_and_download_folder_contents(service, FOLDER_ID, DOWNLOAD_FOLDER)
+    downloaded_count = download_folder_recursively(service, FOLDER_ID, DOWNLOAD_FOLDER)
+    
+    print(f"\nDownload complete! Downloaded {downloaded_count} files total.")
+    
+    # List all downloaded files
+    list_all_downloaded_files(DOWNLOAD_FOLDER)
 
 if __name__ == "__main__":
     main()
