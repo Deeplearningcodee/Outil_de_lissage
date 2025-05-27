@@ -28,7 +28,41 @@ jobs:
       - name: Install rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
+      - name: Configure rclone for Google Drive
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_CREDENTIALS }}
+        run: |
+          echo "--- Attempting to create rclone config directory ---"
+          mkdir -p ~/.config/rclone
+          ls -ld ~/.config/rclone # Vérifier que le dossier est créé et ses permissions
+          
+          echo "--- Writing rclone.conf ---"
+          echo "[gdrive_remote]" > ~/.config/rclone/rclone.conf
+          echo "type = drive" >> ~/.config/rclone/rclone.conf
+          echo "scope = drive" >> ~/.config/rclone/rclone.conf
+          echo "service_account_file = ${{ github.workspace }}/gdrive_sa_key.json" >> ~/.config/rclone/rclone.conf
+          # Si Drive Partagé:
+          # GDRIVE_TEAM_DRIVE_ID: ${{ secrets.GDRIVE_TEAM_DRIVE_ID }} # Définir ce secret si besoin
+          # if [ -n "$GDRIVE_TEAM_DRIVE_ID" ]; then
+          #   echo "team_drive = $GDRIVE_TEAM_DRIVE_ID" >> ~/.config/rclone/rclone.conf
+          # fi
+          echo "rclone.conf generation attempt complete."
 
+          echo "--- Writing gdrive_sa_key.json ---"
+          echo "$GDRIVE_SA_JSON" > ${{ github.workspace }}/gdrive_sa_key.json
+          echo "gdrive_sa_key.json generation attempt complete."
+          
+          echo "--- Content of rclone.conf ---"
+          cat ~/.config/rclone/rclone.conf
+          
+          echo "--- Existence and permissions of rclone.conf ---"
+          ls -l ~/.config/rclone/rclone.conf
+
+          echo "--- Content of gdrive_sa_key.json (first 50 chars) ---"
+          head -c 50 ${{ github.workspace }}/gdrive_sa_key.json && echo
+          
+          echo "--- Existence and permissions of gdrive_sa_key.json ---"
+          ls -l ${{ github.workspace }}/gdrive_sa_key.json
       - name: Test rclone connection by listing root
         run: |
           rclone ls "gdrive_remote:" --config ~/.config/rclone/rclone.conf -P
