@@ -28,46 +28,7 @@ jobs:
       - name: Install rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
-      - name: Configure rclone for Google Drive
-        env:
-          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_CREDENTIALS }}
-        run: |
-          echo "--- Attempting to create rclone config directory ---"
-          mkdir -p ~/.config/rclone
-          ls -ld ~/.config/rclone # Vérifier que le dossier est créé et ses permissions
-          
-          echo "--- Writing rclone.conf ---"
-          echo "[gdrive_remote]" > ~/.config/rclone/rclone.conf
-          echo "type = drive" >> ~/.config/rclone/rclone.conf
-          echo "scope = drive" >> ~/.config/rclone/rclone.conf
-          echo "service_account_file = ${{ github.workspace }}/gdrive_sa_key.json" >> ~/.config/rclone/rclone.conf
-          # Si Drive Partagé:
-          # GDRIVE_TEAM_DRIVE_ID: ${{ secrets.GDRIVE_TEAM_DRIVE_ID }} # Définir ce secret si besoin
-          # if [ -n "$GDRIVE_TEAM_DRIVE_ID" ]; then
-          #   echo "team_drive = $GDRIVE_TEAM_DRIVE_ID" >> ~/.config/rclone/rclone.conf
-          # fi
-          echo "rclone.conf generation attempt complete."
 
-          echo "--- Writing gdrive_sa_key.json ---"
-          echo "$GDRIVE_SA_JSON" > ${{ github.workspace }}/gdrive_sa_key.json
-          echo "gdrive_sa_key.json generation attempt complete."
-          
-          echo "--- Content of rclone.conf ---"
-          cat ~/.config/rclone/rclone.conf
-          
-          echo "--- Existence and permissions of rclone.conf ---"
-          ls -l ~/.config/rclone/rclone.conf
-
-          echo "--- Content of gdrive_sa_key.json (first 50 chars) ---"
-          head -c 50 ${{ github.workspace }}/gdrive_sa_key.json && echo
-          
-          echo "--- Existence and permissions of gdrive_sa_key.json ---"
-          ls -l ${{ github.workspace }}/gdrive_sa_key.json
-      - name: Test rclone connection by listing root
-        run: |
-          rclone ls "gdrive_remote:" --config ~/.config/rclone/rclone.conf -P
-          echo "--- Listing contenu du dossier spécifié (si accessible) ---"
-          rclone ls "gdrive_remote:${{ secrets.GDRIVE_FOLDER_ID }}" --config ~/.config/rclone/rclone.conf -P
 
       - name: Download data from Google Drive
         env:
@@ -78,19 +39,6 @@ jobs:
           echo "Download complete. Files in current directory:"
           ls -R
 
-      - name: Upload results to Google Drive
-        env:
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
-        run: |
-          OUTPUT_FILE="merged_predictions.csv"
-          if [ -f "$OUTPUT_FILE" ]; then
-            echo "Uploading $OUTPUT_FILE to Google Drive..."
-            rclone copy "$OUTPUT_FILE" "gdrive_remote:$GDRIVE_FOLDER_ID" --config ~/.config/rclone/rclone.conf -P
-            echo "$OUTPUT_FILE uploaded."
-          else
-            echo "ERREUR: Le fichier de sortie $OUTPUT_FILE n'a pas été trouvé."
-            exit 1
-          fi
 
       - name: Run main.py script
         run: |
@@ -101,14 +49,10 @@ jobs:
         env:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
-          OUTPUT_FILE="merged_predictions.csv" # Le fichier généré par main.py
+          OUTPUT_FILE="merged_predictions.csv"
           if [ -f "$OUTPUT_FILE" ]; then
             echo "Uploading $OUTPUT_FILE to Google Drive..."
-            # Option 1: Téléverser directement dans le dossier racine partagé
-            rclone copy "$OUTPUT_FILE" "gdrive_remote:$GDRIVE_FOLDER_ID" -P
-            # Option 2: Téléverser dans un sous-dossier (ex: "outputs") à l'intérieur du dossier partagé
-            # rclone copy "$OUTPUT_FILE" "gdrive_remote:$GDRIVE_FOLDER_ID/outputs/" -P 
-            # (Assurez-vous que le dossier "outputs" existe ou utilisez rclone mkdir "gdrive_remote:$GDRIVE_FOLDER_ID/outputs")
+            rclone copy "$OUTPUT_FILE" "gdrive_remote:$GDRIVE_FOLDER_ID" --config ~/.config/rclone/rclone.conf -P
             echo "$OUTPUT_FILE uploaded."
           else
             echo "ERREUR: Le fichier de sortie $OUTPUT_FILE n'a pas été trouvé."
