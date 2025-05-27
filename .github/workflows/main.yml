@@ -3,8 +3,8 @@ name: Run Python Data Pipeline with Google Drive
 on:
   push:
     branches:
-      - main # Déclenche sur push vers la branche main
-  workflow_dispatch: # Permet de déclencher manuellement depuis l'interface GitHub Actions
+      - main
+  workflow_dispatch:
 
 jobs:
   process_data:
@@ -16,19 +16,36 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11' # Ou la version que vous utilisez (ex: 3.10, 3.12)
+          python-version: '3.11'
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy openpyxl scipy # Ajoutez d'autres dépendances si nécessaire
-          # Idéalement, vous auriez un fichier requirements.txt:
-          # if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pandas numpy openpyxl scipy
 
       - name: Install rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
 
+      - name: Configure rclone for Google Drive
+        env:
+          GDRIVE_SERVICE_ACCOUNT_KEY: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          # Create rclone config directory
+          mkdir -p ~/.config/rclone
+          
+          # Create service account key file
+          echo "$GDRIVE_SERVICE_ACCOUNT_KEY" > gdrive_sa_key.json
+          
+          # Configure rclone for Google Drive
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [gdrive_remote]
+          type = drive
+          scope = drive
+          service_account_file = ${{ github.workspace }}/gdrive_sa_key.json
+          EOF
+          
+          echo "Rclone configuration created successfully"
 
       - name: Download data from Google Drive
         env:
@@ -38,7 +55,6 @@ jobs:
           rclone copy "gdrive_remote:$GDRIVE_FOLDER_ID" . --config ~/.config/rclone/rclone.conf -P --fast-list --transfers 8 --checkers 16
           echo "Download complete. Files in current directory:"
           ls -R
-
 
       - name: Run main.py script
         run: |
@@ -60,7 +76,7 @@ jobs:
           fi
       
       - name: Clean up service account key
-        if: always() # S'exécute toujours, même si les étapes précédentes échouent
+        if: always()
         run: |
           rm -f ${{ github.workspace }}/gdrive_sa_key.json
           echo "Service account key file cleaned up."
