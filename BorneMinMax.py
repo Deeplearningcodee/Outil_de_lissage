@@ -226,11 +226,6 @@ def update_facteur_lissage_besoin_brut_from_optim(merged_df): # merged_df est le
             ), axis=1
         )
         
-        # Supprimer les colonnes temporaires de df_optim si elles ont été ajoutées en double (normalement pas avec left merge)
-        # et les colonnes de jointure renommées de df_optim si elles ne sont plus nécessaires.
-        # Ici, on retourne le DataFrame avec la colonne BY mise à jour.
-        # Il faut s'assurer que merged_df_with_factors a les mêmes colonnes que merged_df original + la colonne BY mise à jour
-        # et potentiellement les colonnes PY_Opt_J,K,L si on veut les garder pour inspection.
         
         # Pour s'assurer qu'on retourne le df avec les colonnes originales de merged_df + BY mis à jour :
         final_cols = list(merged_df.columns)

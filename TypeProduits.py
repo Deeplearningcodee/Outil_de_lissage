@@ -101,163 +101,255 @@ def calc_top(df):
     """Calcule 'Top' (Top 500, Top 3000, Autre) en chargeant les fichiers CSV."""
     print("  TypeProduits - Calcul de 'Top'...")
     
-    # Chemins vers les fichiers Top
-    script_dir = os.path.dirname(__file__) # ou répertoire courant si CSV est là
+    script_dir = os.path.dirname(__file__) 
     csv_folder = os.path.join(script_dir, 'CSV')
     if not os.path.exists(csv_folder):
         print(f"    ATTENTION (calc_top): Dossier CSV non trouvé à {csv_folder}. Recherche dans le répertoire du script.")
-        csv_folder = script_dir # Fallback au répertoire du script
+        csv_folder = script_dir 
 
-    top500_file = os.path.join(csv_folder, 'Top500.csv')
-    top3000_file = os.path.join(csv_folder, 'Top3000.csv')
+    top500_file = os.path.join(csv_folder, 'Top_500.csv') # Nom de fichier corrigé
+    top3000_file = os.path.join(csv_folder, 'Top_3000.csv') # Nom de fichier corrigé
 
-    df_top500, df_top3000 = pd.DataFrame(), pd.DataFrame() # Initialiser comme vides
+    df_top500, df_top3000 = pd.DataFrame(), pd.DataFrame()
+
+    ean_col_in_top_files = 'EAN Final' 
+    codemeti_col_in_top_files = 'Code Méti' # CORRIGÉ - Assurez-vous que c'est bien l'en-tête exact
 
     if os.path.exists(top500_file):
         try:
-            df_top500 = pd.read_csv(top500_file, sep=';', encoding='latin1', low_memory=False)
+            df_top500 = pd.read_csv(top500_file, sep=';', encoding='latin1', low_memory=False, dtype=str) 
             df_top500.columns = df_top500.columns.str.strip()
-            print(f"    Fichier Top500.csv chargé ({len(df_top500)} lignes).")
+            print(f"    Fichier {os.path.basename(top500_file)} chargé ({len(df_top500)} lignes). Colonnes: {df_top500.columns.tolist()}")
+            if ean_col_in_top_files not in df_top500.columns:
+                print(f"      ATTENTION: Colonne '{ean_col_in_top_files}' non trouvée dans {os.path.basename(top500_file)}")
+            if codemeti_col_in_top_files not in df_top500.columns: # Vérifier le nom corrigé
+                 print(f"      ATTENTION: Colonne '{codemeti_col_in_top_files}' non trouvée dans {os.path.basename(top500_file)}")
         except Exception as e:
-            print(f"    ERREUR (calc_top): Impossible de lire Top500.csv: {e}")
+            print(f"    ERREUR (calc_top): Impossible de lire {os.path.basename(top500_file)}: {e}")
     else:
-        print(f"    ATTENTION (calc_top): Fichier Top500.csv non trouvé à {top500_file}.")
+        print(f"    ATTENTION (calc_top): Fichier {os.path.basename(top500_file)} non trouvé à {top500_file}.")
 
     if os.path.exists(top3000_file):
         try:
-            df_top3000 = pd.read_csv(top3000_file, sep=';', encoding='latin1', low_memory=False)
+            df_top3000 = pd.read_csv(top3000_file, sep=';', encoding='latin1', low_memory=False, dtype=str) 
             df_top3000.columns = df_top3000.columns.str.strip()
-            print(f"    Fichier Top3000.csv chargé ({len(df_top3000)} lignes).")
+            print(f"    Fichier {os.path.basename(top3000_file)} chargé ({len(df_top3000)} lignes). Colonnes: {df_top3000.columns.tolist()}")
+            if ean_col_in_top_files not in df_top3000.columns:
+                print(f"      ATTENTION: Colonne '{ean_col_in_top_files}' non trouvée dans {os.path.basename(top3000_file)}")
+            if codemeti_col_in_top_files not in df_top3000.columns: # Vérifier le nom corrigé
+                 print(f"      ATTENTION: Colonne '{codemeti_col_in_top_files}' non trouvée dans {os.path.basename(top3000_file)}")
         except Exception as e:
-            print(f"    ERREUR (calc_top): Impossible de lire Top3000.csv: {e}")
+            print(f"    ERREUR (calc_top): Impossible de lire {os.path.basename(top3000_file)}: {e}")
     else:
-        print(f"    ATTENTION (calc_top): Fichier Top3000.csv non trouvé à {top3000_file}.")
+        print(f"    ATTENTION (calc_top): Fichier {os.path.basename(top3000_file)} non trouvé à {top3000_file}.")
 
-    # Créer des sets pour une recherche rapide, en gérant les colonnes manquantes
     top500_ean_set, top500_code_set = set(), set()
     if not df_top500.empty:
-        if 'EAN' in df_top500.columns: top500_ean_set = set(df_top500['EAN'].astype(str).str.strip())
-        if 'CODE_METI' in df_top500.columns: top500_code_set = set(df_top500['CODE_METI'].astype(str).str.strip())
+        if ean_col_in_top_files in df_top500.columns: 
+            top500_ean_set = set(df_top500[ean_col_in_top_files].astype(str).str.strip().str.replace(",", ".")) # regex=False n'est pas nécessaire ici
+        if codemeti_col_in_top_files in df_top500.columns: 
+            top500_code_set = set(df_top500[codemeti_col_in_top_files].astype(str).str.strip())
 
     top3000_ean_set, top3000_code_set = set(), set()
     if not df_top3000.empty:
-        if 'EAN' in df_top3000.columns: top3000_ean_set = set(df_top3000['EAN'].astype(str).str.strip())
-        if 'CODE_METI' in df_top3000.columns: top3000_code_set = set(df_top3000['CODE_METI'].astype(str).str.strip())
+        if ean_col_in_top_files in df_top3000.columns: 
+            top3000_ean_set = set(df_top3000[ean_col_in_top_files].astype(str).str.strip().str.replace(",", "."))
+        if codemeti_col_in_top_files in df_top3000.columns: 
+            top3000_code_set = set(df_top3000[codemeti_col_in_top_files].astype(str).str.strip())
     
-    # S'assurer que les colonnes Ean_13 et CODE_METI existent dans le df principal
-    # Ean_13 est le nom dans Détail.xlsx, EAN peut être créé par Ts.py
     ean_col_to_use = None
-    if 'Ean_13' in df.columns: ean_col_to_use = 'Ean_13'
+    if 'Ean_13' in df.columns: ean_col_to_use = 'Ean_13' 
+    elif 'EAN Final' in df.columns: ean_col_to_use = 'EAN Final' 
     elif 'EAN' in df.columns: ean_col_to_use = 'EAN'
     
     codemeti_col_to_use = None
     if 'CODE_METI' in df.columns: codemeti_col_to_use = 'CODE_METI'
+    # Si vous avez un 'Code Méti' dans df (le merged_df), ajoutez une condition ici aussi
+    elif 'Code Méti' in df.columns: codemeti_col_to_use = 'Code Méti'
 
 
     def get_top_category(row):
-        ean_val, code_meti_val = None, None
-        if ean_col_to_use: ean_val = str(row.get(ean_col_to_use, '')).strip()
-        if codemeti_col_to_use: code_meti_val = str(row.get(codemeti_col_to_use, '')).strip()
+        ean_val_str, code_meti_val_str = None, None
+        
+        if ean_col_to_use and pd.notna(row.get(ean_col_to_use)): 
+            ean_val_str = str(row.get(ean_col_to_use)).strip().replace(",", ".") # CORRIGÉ: regex=False enlevé
+            if ean_val_str.endswith('.0'):
+                ean_val_str = ean_val_str[:-2]
 
-        if (ean_val and ean_val in top500_ean_set) or \
-           (code_meti_val and code_meti_val in top500_code_set):
+        if codemeti_col_to_use and pd.notna(row.get(codemeti_col_to_use)): 
+            code_meti_val_str = str(row.get(codemeti_col_to_use)).strip()
+            if code_meti_val_str.endswith('.0'): 
+                code_meti_val_str = code_meti_val_str[:-2]
+
+        if (ean_val_str and ean_val_str in top500_ean_set) or \
+           (code_meti_val_str and code_meti_val_str in top500_code_set):
             return "top 500"
-        if (ean_val and ean_val in top3000_ean_set) or \
-           (code_meti_val and code_meti_val in top3000_code_set):
+        if (ean_val_str and ean_val_str in top3000_ean_set) or \
+           (code_meti_val_str and code_meti_val_str in top3000_code_set):
             return "top 3000"
-        return "autre" # Standardisé en minuscules
+        return "autre"
 
     if not ean_col_to_use and not codemeti_col_to_use:
-        print("    ATTENTION (calc_top): Ni 'Ean_13'/'EAN' ni 'CODE_METI' trouvées dans le DataFrame principal. 'Top' sera 'autre'.")
+        print("    ATTENTION (calc_top): Ni colonne EAN ni CODE_METI utilisable trouvée dans le DataFrame principal. 'Top' sera 'autre'.")
         df['Top'] = "autre"
     else:
+        print(f"    Utilisation de '{ean_col_to_use}' pour EAN et '{codemeti_col_to_use}' pour CODE_METI pour la recherche Top.")
         df['Top'] = df.apply(get_top_category, axis=1)
     
     print("  TypeProduits - 'Top' calculé.")
     return df
 
+# La fonction get_processed_data doit aussi être corrigée pour le parsing des dates
 def get_processed_data(input_df):
-    """
-    Fonction principale pour calculer 'Type de produits', 'Type de produits V2', et 'Top'.
-    Prend un DataFrame en entrée et retourne le DataFrame modifié.
-    """
     print("TypeProduits - Début du traitement...")
     if not isinstance(input_df, pd.DataFrame):
-        raise ValueError("L'entrée de TypeProduits.get_processed_data doit être un DataFrame Pandas.")
+        if isinstance(input_df, str) and os.path.exists(input_df):
+            try:
+                print(f"  TypeProduits - Lecture du fichier d'entrée: {input_df}")
+                # Si init_merged_predictions.csv utilise des dates AAAA-MM-JJ, dayfirst=False est mieux
+                df_copy = pd.read_csv(input_df, sep=';', encoding='latin1', low_memory=False)
+            except Exception as e:
+                raise ValueError(f"L'entrée de TypeProduits.get_processed_data n'est pas un DataFrame valide et n'a pas pu être lue comme CSV: {e}")
+        else:
+            raise ValueError("L'entrée de TypeProduits.get_processed_data doit être un DataFrame Pandas ou un chemin vers un fichier CSV valide.")
+    else:
+        df_copy = input_df.copy() 
     
-    df_copy = input_df.copy() # Travailler sur une copie pour éviter les SettingWithCopyWarning
-    
+    if 'DATE_LIVRAISON_V2' in df_copy.columns:
+        # Pandas est bon pour deviner AAAA-MM-JJ, dayfirst=True n'est pas nécessaire et cause un warning si le format est YYYY-MM-DD
+        df_copy['DATE_LIVRAISON_V2'] = pd.to_datetime(df_copy['DATE_LIVRAISON_V2'], errors='coerce') 
+
     df_copy = calc_type_produits(df_copy)
     df_copy = calc_type_produits_v2(df_copy) 
-    df_copy = calc_top(df_copy)
+    df_copy = calc_top(df_copy) 
     
     print("TypeProduits - Traitement terminé.")
     return df_copy
 
-if __name__ == "__main__":
-    print("--- Test du module TypeProduits.py ---")
-    
-    # Vérifier si MacroParam a été chargé, sinon imprimer un avertissement plus visible
-    if not MACROPARAM_LOADED:
-        print("\nATTENTION MAJEURE: MacroParam.py n'a pas été chargé. Les valeurs par défaut sont utilisées pour TYPES_PRODUITS, GESTION_AB_AC_MAPPING, et les dates de référence. Les résultats peuvent ne pas correspondre à votre configuration Excel.\n")
 
-    # Créer un DataFrame de test plus réaliste
-    test_data = {
-        'CLASSE_STOCKAGE': ["1060", "1060", "1061", "1070", "1080", "1062", "1060", "1060", "1063"], 
-        'DATE_LIVRAISON_V2': [ # Assurez-vous que ces dates ont du sens par rapport à DATE_REF_JOUR_AB/AC
-            DATE_REF_JOUR_AB - pd.Timedelta(days=1), # Devrait devenir "sec - autre" ou "sec méca"
-            DATE_REF_JOUR_AB,                       # Devrait devenir "Sec Méca - A/B"
-            DATE_REF_JOUR_AC,                       # Devrait devenir "Sec Homogène - A/C"
-            DATE_REF_JOUR_AB,                       # "Frais Méca" (non Sec)
-            DATE_REF_JOUR_AB,                       # "Surgelés" (non Sec)
-            DATE_REF_JOUR_AB + pd.Timedelta(days=5), # "Sec Hétérogène" (devrait devenir "sec - autre")
-            pd.NaT,                                 # Sec Méca avec date NaT
-            DATE_REF_JOUR_AC,                       # Sec Méca, Gestion Non (si configuré dans GESTION_AB_AC_MAPPING)
-            DATE_REF_JOUR_AB                        # Sec Hétérogène (pour tester GESTION_AB_AC_MAPPING)
-        ],
-        'Ean_13': ['EAN_SM_AUTRE', 'EAN_SM_AB', 'EAN_SH_AC', 'EAN_FM', 'EAN_SU', 'EAN_SHET_AUTRE', 'EAN_NAT', 'EAN_SECMECA_GESTNON', 'EAN_SHETERO_AB'],
-        'CODE_METI': ['CM_SM_AUTRE', 'TOP500_CODE', 'TOP3000_CODE', 'CM_FM', 'CM_SU', 'CM_SHET_AUTRE', 'CM_NAT', 'CM_SECMECA_GESTNON', 'CM_SHETERO_AB']
-    }
-    test_df = pd.DataFrame(test_data)
+if __name__ == "__main__":
+    print("--- Test du module TypeProduits.py avec init_merged_predictions.csv ---")
     
-    # Simuler des fichiers Top500 et Top3000 pour le test
-    current_script_dir = os.path.dirname(__file__)
-    csv_test_dir = os.path.join(current_script_dir, 'CSV')
+    if not MACROPARAM_LOADED:
+        print("\nATTENTION MAJEURE: MacroParam.py non chargé. Valeurs par défaut utilisées.\n")
+
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_test_dir = os.path.join(current_script_dir, 'CSV') # Vos fichiers Top doivent être ici
+    
+    top500_file_path = os.path.join(csv_test_dir, 'Top_500.csv')
+    top3000_file_path = os.path.join(csv_test_dir, 'Top_3000.csv')
+    ean_col_in_top_files = 'EAN Final' 
+    codemeti_col_in_top_files = 'Code Méti' # Ou 'Code M�ti' si c'est votre en-tête réel
+
+    # Vérifier si le dossier CSV existe, sinon le créer (utile si Top_500/3000 sont créés par démo)
     if not os.path.exists(csv_test_dir):
         os.makedirs(csv_test_dir)
+        print(f"Dossier {csv_test_dir} créé.")
 
-    pd.DataFrame({'EAN': ['EAN_SM_AB'], 'CODE_METI': ['TOP500_CODE']}).to_csv(os.path.join(csv_test_dir, 'Top500.csv'), sep=';', index=False)
-    pd.DataFrame({'EAN': ['EAN_SH_AC'], 'CODE_METI': ['TOP3000_CODE_WRONG_EAN']}).to_csv(os.path.join(csv_test_dir, 'Top3000.csv'), sep=';', index=False)
-    print(f"Fichiers Top500.csv et Top3000.csv de test créés dans {csv_test_dir}")
+    # Créer Top_500.csv de démo SEULEMENT s'il n'existe pas
+    if not os.path.exists(top500_file_path):
+        print(f"ATTENTION: {top500_file_path} non trouvé. Création d'un fichier de démo.")
+        top500_demodata = {
+            ean_col_in_top_files: ['EAN_TOP500_DEMO1', '3270190000767'],
+            codemeti_col_in_top_files: ['CM_TOP500_DEMO1', '18087_TOP500_DEMO'],
+            'AutreColonne': ['infoA', 'infoB']
+        }
+        pd.DataFrame(top500_demodata).to_csv(top500_file_path, sep=';', index=False, encoding='latin1')
+        print(f"  Fichier de démo {os.path.basename(top500_file_path)} créé.")
+    else:
+        print(f"Utilisation du fichier existant: {top500_file_path}")
+
+    # Créer Top_3000.csv de démo SEULEMENT s'il n'existe pas
+    if not os.path.exists(top3000_file_path):
+        print(f"ATTENTION: {top3000_file_path} non trouvé. Création d'un fichier de démo.")
+        top3000_demodata = {
+            ean_col_in_top_files: ['EAN_TOP3000_DEMO1'],
+            codemeti_col_in_top_files: ['CM_TOP3000_DEMO1'],
+            'AutreColonne': ['infoC']
+        }
+        pd.DataFrame(top3000_demodata).to_csv(top3000_file_path, sep=';', index=False, encoding='latin1')
+        print(f"  Fichier de démo {os.path.basename(top3000_file_path)} créé.")
+    else:
+        print(f"Utilisation du fichier existant: {top3000_file_path}")
+
+    test_input_file = os.path.join(current_script_dir, "initial_merged_predictions.csv")
+    # ... (le reste du code pour créer init_merged_predictions.csv s'il n'existe pas,
+    #      puis appeler get_processed_data et faire les vérifications reste le même) ...
+
+    if not os.path.exists(test_input_file):
+        print(f"ATTENTION: Fichier de test d'entrée '{test_input_file}' non trouvé.")
+        demo_init_data = {
+            'CLASSE_STOCKAGE': ["1060", "1061", "1070", "1060", "1062", "1080"], 
+            'DATE_LIVRAISON_V2': ["2025-05-22", "2025-05-22", "2025-05-22", "2025-05-21", "2025-05-21", "2025-05-22"], 
+            'Ean_13': ['EAN_TOP500_TEST_INIT', 'EAN_TOP3000_TEST_INIT', 'EAN_AUTRE_TEST', '3270190000767', 'EAN_SHOULD_BE_OTHER', 'EAN_XYZ_IN_TOP3000'],
+            'CODE_METI': ['CM_TOP500_TEST_INIT', 'CM_TOP3000_TEST_INIT', 'CM_AUTRE_TEST', '18087', 'CM_SHOULD_BE_OTHER', 'CM_ABC_IN_TOP3000']
+        }
+        pd.DataFrame(demo_init_data).to_csv(test_input_file, sep=';', index=False, encoding='latin1')
+        print(f"Fichier de démo '{test_input_file}' créé. Veuillez le vérifier et relancer.")
+        exit()
+    else:
+        print(f"Utilisation du fichier d'entrée: {test_input_file}")
+        
+    df_processed_from_file = get_processed_data(test_input_file) 
     
-    print(f"\nUtilisation DATE_REF_JOUR_AB: {DATE_REF_JOUR_AB.strftime('%Y-%m-%d') if pd.notna(DATE_REF_JOUR_AB) else 'NaT'}, DATE_REF_JOUR_AC: {DATE_REF_JOUR_AC.strftime('%Y-%m-%d') if pd.notna(DATE_REF_JOUR_AC) else 'NaT'}")
-    print("GESTION_AB_AC_MAPPING utilisé:")
-    for k, v in GESTION_AB_AC_MAPPING.items(): print(f"  {k}: {v}")
+    print("\nRésultats du test de TypeProduits.py (depuis fichier):")
+    cols_to_display = ['CLASSE_STOCKAGE', 'DATE_LIVRAISON_V2', 
+                       'Ean_13', 'CODE_METI', 
+                       'Type de produits', 'Type de produits V2', 'Top']
+    # S'assurer que les colonnes existent avant de les afficher
+    cols_to_print = [col for col in cols_to_display if col in df_processed_from_file.columns]
+    if cols_to_print:
+        print(df_processed_from_file[cols_to_print].to_string(index=False))
+    else:
+        print("Aucune des colonnes de débogage spécifiées n'a été trouvée dans le DataFrame traité.")
 
-    test_df_processed = get_processed_data(test_df.copy()) 
-    print("\nRésultats du test de TypeProduits.py:")
-    cols_to_display = ['CLASSE_STOCKAGE', 'DATE_LIVRAISON_V2', 'Type de produits', 'Type de produits V2', 'Top']
-    # Afficher seulement les colonnes qui existent réellement dans test_df_processed
-    print(test_df_processed[[col for col in cols_to_display if col in test_df_processed.columns]].to_string())
 
-    # Vérifications attendues
-    print("\nVérifications attendues (exemples):")
-    # Sec Méca, date_livraison == DATE_REF_JOUR_AB -> 'sec méca - a/b'
-    row_sm_ab = test_df_processed[test_df_processed['Ean_13'] == 'EAN_SM_AB']
-    if not row_sm_ab.empty:
-        print(f"  EAN_SM_AB (Sec Méca, date=AB): Type V2 = '{row_sm_ab['Type de produits V2'].iloc[0]}', Top = '{row_sm_ab['Top'].iloc[0]}' (Attendu: 'sec méca - a/b', 'top 500')")
+    print("\nVérifications attendues (adaptez expected_tops à VOS fichiers Top_500/3000 et init_merged_predictions):")
+    # IMPORTANT: Adaptez ce dictionnaire à ce que vous attendez de VOS fichiers
+    expected_tops = {
+        # Mettez ici des EAN ou CODE_METI de votre init_merged_predictions.csv
+        # et le 'Top' attendu basé sur VOS Top_500.csv et Top_3000.csv
+        'EAN_TOP500_TEST_INIT': 'top 500', 
+        'CM_TOP3000_TEST_INIT': 'top 3000',
+        'EAN_AUTRE_TEST': 'autre',
+        '3270190000767': 'top 500', # Si cet EAN est dans votre Top_500.csv
+        'EAN_XYZ_IN_TOP3000': 'top 3000' # Si cet EAN est dans votre Top_3000.csv
+    }
+    # ... (le reste de la boucle de vérification) ...
+    correct_matches = 0
+    total_verifiable = 0
 
-    # Sec Homogène, date_livraison == DATE_REF_JOUR_AC -> 'sec homogène - a/c'
-    row_sh_ac = test_df_processed[test_df_processed['Ean_13'] == 'EAN_SH_AC']
-    if not row_sh_ac.empty:
-         print(f"  EAN_SH_AC (Sec Homogène, date=AC): Type V2 = '{row_sh_ac['Type de produits V2'].iloc[0]}', Top = '{row_sh_ac['Top'].iloc[0]}' (Attendu: 'sec homogène - a/c', 'top 3000')")
+    for idx, row in df_processed_from_file.iterrows():
+        ean = str(row.get('Ean_13','')).strip().replace(",",".")
+        if ean.endswith('.0'): ean = ean[:-2]
+        code_meti = str(row.get('CODE_METI','')).strip()
+        if code_meti.endswith('.0'): code_meti = code_meti[:-2]
+        top_calcul = row.get('Top')
+        
+        attendu = 'autre' 
+        key_used_for_expected = None
 
-    # Frais Méca -> 'frais méca'
-    row_fm = test_df_processed[test_df_processed['Ean_13'] == 'EAN_FM']
-    if not row_fm.empty:
-        print(f"  EAN_FM (Frais Méca): Type V2 = '{row_fm['Type de produits V2'].iloc[0]}', Top = '{row_fm['Top'].iloc[0]}' (Attendu: 'frais méca', 'autre')")
-    
-    # Sec Méca avec NaT date_livraison -> 'sec - autre'
-    row_nat = test_df_processed[test_df_processed['Ean_13'] == 'EAN_NAT']
-    if not row_nat.empty:
-        print(f"  EAN_NAT (Sec Méca, date NaT): Type V2 = '{row_nat['Type de produits V2'].iloc[0]}' (Attendu: 'sec - autre')")
+        if ean_col_in_top_files and ean in expected_tops:
+            attendu = expected_tops[ean]
+            key_used_for_expected = f"EAN: {ean}"
+        elif codemeti_col_in_top_files and code_meti in expected_tops: 
+            attendu = expected_tops[code_meti]
+            key_used_for_expected = f"CODE_METI: {code_meti}"
+        
+        if key_used_for_expected:
+            total_verifiable += 1
+            if top_calcul == attendu:
+                print(f"  OK: {key_used_for_expected} -> Top '{top_calcul}' (Attendu '{attendu}')")
+                correct_matches +=1
+            else:
+                print(f"  KO: {key_used_for_expected} -> Top '{top_calcul}' (ATTENTION: Attendu '{attendu}')")
+        elif top_calcul == 'autre':
+            pass # Correct si non dans expected_tops et classé 'autre'
+            # print(f"  INFO: EAN '{ean}' / CODE_METI '{code_meti}' -> Top '{top_calcul}' (Correctement 'autre' car non dans expected_tops)")
+        else:
+            print(f"  KO: EAN '{ean}' / CODE_METI '{code_meti}' -> Top '{top_calcul}' (ATTENTION: Devrait être 'autre' car non dans expected_tops)")
+            
+    if total_verifiable > 0:
+        print(f"\nTotal des vérifications basées sur expected_tops: {correct_matches}/{total_verifiable} correctes.")
+    else:
+        print("\nAucune clé de expected_tops n'a été trouvée dans les données de test pour vérification. Vérifiez le contenu de expected_tops et de init_merged_predictions.csv.")
