@@ -31,35 +31,32 @@ jobs:
 
       - name: Test rclone connection by listing root
         run: |
-          rclone ls "gdrive_remote:" -P
+          rclone ls "gdrive_remote:" --config ~/.config/rclone/rclone.conf -P
           echo "--- Listing contenu du dossier spécifié (si accessible) ---"
-          rclone ls "gdrive_remote:${{ secrets.GDRIVE_FOLDER_ID }}" -P
-      
-      - name: Configure rclone for Google Drive
-        env:
-          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_CREDENTIALS }}
-        run: |
-          mkdir -p ~/.config/rclone
-          echo "[gdrive_remote]" > ~/.config/rclone/rclone.conf
-          echo "type = drive" >> ~/.config/rclone/rclone.conf
-          echo "scope = drive" >> ~/.config/rclone/rclone.conf
-          echo "service_account_file = ${{ github.workspace }}/gdrive_sa_key.json" >> ~/.config/rclone/rclone.conf
-          # Si votre dossier est dans un Drive partagé (Team Drive), ajoutez la ligne suivante avec l'ID du Drive Partagé
-          # echo "team_drive = VOTRE_ID_DE_DRIVE_PARTAGE" >> ~/.config/rclone/rclone.conf
-          
-          echo "$GDRIVE_SA_JSON" > ${{ github.workspace }}/gdrive_sa_key.json
-          echo "rclone configuration generated."
+          rclone ls "gdrive_remote:${{ secrets.GDRIVE_FOLDER_ID }}" --config ~/.config/rclone/rclone.conf -P
 
       - name: Download data from Google Drive
         env:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
           echo "Downloading files from Google Drive folder ID: $GDRIVE_FOLDER_ID"
-          # Copie le contenu du dossier distant vers le répertoire courant (.) de l'action
-          # Cela devrait recréer votre structure de dossiers (CSV, PDC, etc.)
-          rclone copy "gdrive_remote:$GDRIVE_FOLDER_ID" . -P --fast-list --transfers 8 --checkers 16
+          rclone copy "gdrive_remote:$GDRIVE_FOLDER_ID" . --config ~/.config/rclone/rclone.conf -P --fast-list --transfers 8 --checkers 16
           echo "Download complete. Files in current directory:"
           ls -R
+
+      - name: Upload results to Google Drive
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          OUTPUT_FILE="merged_predictions.csv"
+          if [ -f "$OUTPUT_FILE" ]; then
+            echo "Uploading $OUTPUT_FILE to Google Drive..."
+            rclone copy "$OUTPUT_FILE" "gdrive_remote:$GDRIVE_FOLDER_ID" --config ~/.config/rclone/rclone.conf -P
+            echo "$OUTPUT_FILE uploaded."
+          else
+            echo "ERREUR: Le fichier de sortie $OUTPUT_FILE n'a pas été trouvé."
+            exit 1
+          fi
 
       - name: Run main.py script
         run: |
