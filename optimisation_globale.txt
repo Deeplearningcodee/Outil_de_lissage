@@ -1,0 +1,660 @@
+# Fichier: optimisation_globale.py
+import pandas as pd
+import numpy as np
+from scipy.optimize import minimize_scalar, differential_evolution, NonlinearConstraint
+import os
+from datetime import datetime 
+import MacroParam
+
+# --- Fichier et Module de Paramètres ---
+try:
+    # On utilise CommandeFinale.py pour la simulation de F_sim
+    # car c'est ce que main.py utilise.
+    import CommandeFinale as cf_main_module 
+except ImportError as e:
+    print(f"ERREUR: Module requis CommandeFinale.py introuvable. Erreur: {e}")
+    exit()
+
+try:
+    from MacroParam import get_param_value, get_arrondi_pcb_seuils
+except ImportError as e:
+    print(f"ERREUR: Module MacroParam.py introuvable ou fonctions manquantes. Erreur: {e}")
+    exit()
+
+# --- Constantes Globales de Marge ---
+MARGE_POUR_BOOST_ET_L_VAR_SOLVER = MacroParam.MARGE_POUR_BOOST_ET_L_VAR_SOLVER
+MARGE_I_POUR_SOLVER_CONDITION = MacroParam.MARGE_I_POUR_SOLVER_CONDITION   
+ALERTE_SURCHARGE_NIVEAU_1_DEFAULT = MacroParam.ALERTE_SURCHARGE_NIVEAU_1
+
+current_row_state_for_solver = {} 
+
+# --- Fonctions de Chargement et Pré-traitement des Données ---
+def load_data(pdc_sim_filepath, detail_filepath):
+    print(f"DEBUG LoadData: Chargement de {pdc_sim_filepath} (PDC_Sim)...")
+    try:
+        df_pdc_sim = pd.read_excel(pdc_sim_filepath)
+    except Exception:
+        try:
+            df_pdc_sim = pd.read_csv(pdc_sim_filepath) 
+        except Exception as e_csv:
+            raise ValueError(f"Erreur: Impossible de lire {pdc_sim_filepath}. Détails: {e_csv}")
+
+    print(f"DEBUG LoadData: Chargement de {detail_filepath} (devrait être merged_predictions.csv)...")
+    try:
+        df_detail = pd.read_csv(detail_filepath, sep=';', encoding='latin1', low_memory=False)
+        print(f"  {detail_filepath} chargé avec succès comme CSV.")
+    except Exception as e_csv:
+        raise ValueError(f"Erreur: Impossible de lire {detail_filepath} comme CSV. Détails: {e_csv}")
+
+    required_pdc_sim_cols = [
+        'Type de produits V2', 'Type de produits', 'Jour livraison', 
+        'PDC', 'En-cours', 'Commande SM à 100%', 'Tolérance',
+        'Poids du A/C max', 'Top 500', 'Top 3000', 'Autre',
+        'Limite Basse Top 500', 'Limite Basse Top 3000', 'Limite Basse Autre',
+        'Limite Haute Top 500', 'Limite Haute Top 3000', 'Limite Haute Autre',
+        'Min Facteur', 'Max Facteur', 'Boost PDC'
+    ]
+    for col in required_pdc_sim_cols:
+        if col not in df_pdc_sim.columns:
+             raise ValueError(f"Colonne requise '{col}' manquante dans {pdc_sim_filepath}")
+
+    df_pdc_sim['Type de produits V2'] = df_pdc_sim['Type de produits V2'].astype(str).str.strip().str.lower()
+    df_pdc_sim['Jour livraison'] = pd.to_datetime(df_pdc_sim['Jour livraison'], errors='coerce')
+    
+    percentage_like_cols_pdc_sim = ['Top 500', 'Top 3000', 'Autre', 'Boost PDC', 
+                                    'Min Facteur', 'Max Facteur', 'Poids du A/C max',
+                                    'Limite Basse Top 500', 'Limite Basse Top 3000', 'Limite Basse Autre',
+                                    'Limite Haute Top 500', 'Limite Haute Top 3000', 'Limite Haute Autre']
+    
+    cols_to_convert_to_numeric_pdc_sim = [
+        'PDC', 'En-cours', 'Commande SM à 100%', 'Tolérance', 'Poids du A/C max',
+        'Top 500', 'Top 3000', 'Autre', 
+        'Limite Basse Top 500', 'Limite Basse Top 3000', 'Limite Basse Autre',
+        'Limite Haute Top 500', 'Limite Haute Top 3000', 'Limite Haute Autre',
+        'Min Facteur', 'Max Facteur', 'Boost PDC'
+    ]
+    
+    for col in cols_to_convert_to_numeric_pdc_sim:
+        if col in df_pdc_sim.columns:
+            if df_pdc_sim[col].dtype == 'object': 
+                temp_col_str_series = df_pdc_sim[col].astype(str)
+                df_pdc_sim[col] = temp_col_str_series.replace(r'^\s*$', np.nan, regex=True)
+                had_percent_sign = df_pdc_sim[col].str.contains('%', na=False)
+                cleaned_col = df_pdc_sim[col].str.rstrip('%').str.replace(',', '.', regex=False)
+                df_pdc_sim[col] = pd.to_numeric(cleaned_col, errors='coerce')
+                
+                if col in percentage_like_cols_pdc_sim:
+                    mask_had_percent_and_not_nan = had_percent_sign & (~df_pdc_sim[col].isnull())
+                    df_pdc_sim.loc[mask_had_percent_and_not_nan, col] = \
+                        df_pdc_sim.loc[mask_had_percent_and_not_nan, col] / 100.0
+            
+            if pd.api.types.is_numeric_dtype(df_pdc_sim[col]) and col in percentage_like_cols_pdc_sim:
+                 if col not in ['PDC', 'En-cours', 'Commande SM à 100%', 'Tolérance']:
+                    mask_large_percentage = (~df_pdc_sim[col].isnull()) & (df_pdc_sim[col].abs() > 5.0) 
+                    if mask_large_percentage.any():
+                         df_pdc_sim.loc[mask_large_percentage, col] /= 100.0
+    
+    if 'Tolérance' in df_pdc_sim.columns and df_pdc_sim['Tolérance'].isnull().any():
+        mask_nan_tolerance = df_pdc_sim['Tolérance'].isnull()
+        if 'PDC' in df_pdc_sim.columns and pd.api.types.is_numeric_dtype(df_pdc_sim['PDC']):
+            df_pdc_sim.loc[mask_nan_tolerance, 'Tolérance'] = \
+                df_pdc_sim.loc[mask_nan_tolerance, 'PDC'] * ALERTE_SURCHARGE_NIVEAU_1_DEFAULT
+        else: 
+            print("AVERTISSEMENT LoadData: Col 'PDC' non trouvée/numérique pour recalculer 'Tolérance' NaN dans df_pdc_sim.")
+
+    required_detail_cols_map = {
+        'BM': 'Type de produits V2', 'DATE_LIVRAISON_V2': 'DATE_LIVRAISON_V2', 'Top': 'Top',
+        'Borne Min Facteur multiplicatif lissage': 'Borne Min Facteur multiplicatif lissage',
+        'Borne Max Facteur multiplicatif lissage': 'Borne Max Facteur multiplicatif lissage',
+        'Commande Finale avec mini et arrondi SM à 100%': 'Commande Finale avec mini et arrondi SM à 100%',
+        'Mini Publication FL': 'Mini Publication FL', 'COCHE_RAO': 'COCHE_RAO',
+        'STOCK_REEL': 'STOCK_REEL', 'RAL': 'RAL', 'SM Final': 'SM Final',
+        'Prév C1-L2 Finale': 'Prév C1-L2 Finale', 'Prév L1-L2 Finale': 'Prév L1-L2 Finale', 
+        'Facteur Multiplicatif Appro': 'Facteur Multiplicatif Appro',
+        'Casse Prev C1-L2': 'Casse Prev C1-L2', 'Casse Prev L1-L2': 'Casse Prev L1-L2',
+        'Produit Bloqué': 'Produit Bloqué', 'Commande Max avec stock max': 'Commande Max avec stock max',
+        'Position JUD': 'Position JUD', 'MINIMUM_COMMANDE': 'MINIMUM_COMMANDE',
+        'PCB': 'PCB', 'TS': 'TS',
+        'BQ': 'Commande Finale avec mini et arrondi SM à 100% avec TS', # Base pour F_sim
+        'CODE_METI': 'CODE_METI', 'Ean_13': 'Ean_13' 
+    }
+    for internal_name, original_name in required_detail_cols_map.items():
+        if original_name not in df_detail.columns:
+            print(f"AVERTISSEMENT LoadData: Colonne '{original_name}' (pour '{internal_name}') manquante dans {detail_filepath}.")
+            if internal_name not in df_detail.columns: df_detail[internal_name] = np.nan 
+        elif internal_name != original_name and internal_name not in df_detail.columns:
+            df_detail.rename(columns={original_name: internal_name}, inplace=True)
+
+    if 'DATE_LIVRAISON_V2' in df_detail.columns:
+        df_detail['DATE_LIVRAISON_V2'] = pd.to_datetime(df_detail['DATE_LIVRAISON_V2'], errors='coerce', dayfirst=True)
+    else: df_detail['DATE_LIVRAISON_V2'] = pd.NaT
+
+    bm_col_internal = 'BM' # Clé interne pour 'Type de produits V2'
+    if 'Type de produits V2' in df_detail.columns and bm_col_internal not in df_detail.columns :
+         df_detail.rename(columns={'Type de produits V2': bm_col_internal}, inplace=True)
+    if bm_col_internal in df_detail.columns:
+        df_detail[bm_col_internal] = df_detail[bm_col_internal].fillna('').astype(str).str.strip().str.lower()
+    else: df_detail[bm_col_internal] = ''
+    
+    if 'Top' in df_detail.columns: df_detail['Top'] = df_detail['Top'].fillna('autre').astype(str).str.strip().str.lower() 
+    else: df_detail['Top'] = 'autre'
+    
+    if 'BQ' in df_detail.columns: df_detail['BQ'] = pd.to_numeric(df_detail['BQ'], errors='coerce').fillna(0)
+    else: df_detail['BQ'] = 0
+        
+    if 'Commande Finale avec mini et arrondi SM à 100%' in df_detail.columns:
+        df_detail['Commande Finale avec mini et arrondi SM à 100%'] = pd.to_numeric(df_detail['Commande Finale avec mini et arrondi SM à 100%'], errors='coerce').fillna(0)
+    else: df_detail['Commande Finale avec mini et arrondi SM à 100%'] = 0
+
+    df_pdc_sim.dropna(subset=['Type de produits V2', 'Jour livraison', 'PDC', 'Tolérance'], inplace=True)
+    df_detail.dropna(subset=['BM', 'DATE_LIVRAISON_V2', 'BQ', 'Top', 'Commande Finale avec mini et arrondi SM à 100%'], inplace=True)
+    
+    print("DEBUG LoadData: Aperçu df_pdc_sim après conversion (quelques colonnes clés):")
+    cols_to_show_pdc = ['Type de produits V2', 'Jour livraison', 'PDC', 'Tolérance', 'Poids du A/C max', 'Top 500', 'Min Facteur', 'Max Facteur', 'Limite Basse Top 500', 'Limite Haute Top 500', 'Boost PDC']
+    print(df_pdc_sim[[c for c in cols_to_show_pdc if c in df_pdc_sim.columns]].head(3).to_string())
+    print("DEBUG LoadData: Aperçu df_detail (merged_predictions) après chargement et renommage (quelques colonnes clés):")
+    cols_to_show_detail = ['BM', 'DATE_LIVRAISON_V2', 'Top', 'BQ', 'Commande Finale avec mini et arrondi SM à 100%', 'SM Final']
+    print(df_detail[[c for c in cols_to_show_detail if c in df_detail.columns]].head(3).to_string())
+    return df_pdc_sim, df_detail
+
+# --- Fonctions de Calcul et d'Optimisation ---
+def recalculate_for_row(
+    pdc_simulation_base, 
+    pdc_simulation_base_for_kvar, 
+    en_cours_stock, 
+    df_detail_filtered, 
+    j_factor_trial, 
+    k_factor_trial, 
+    l_factor_trial, 
+    h_boost_py_trial, 
+    context=""
+):
+    pdc_target_adjusted_with_python_boost = pdc_simulation_base * (1 + h_boost_py_trial)
+    
+    # APPEL À LA NOUVELLE FONCTION VECTORISÉE
+    if not df_detail_filtered.empty:
+        simulated_total_cmd_opt = cf_main_module.get_total_cf_optimisee_vectorized(
+            df_detail_filtered, j_factor_trial, k_factor_trial, l_factor_trial
+        )
+    else:
+        simulated_total_cmd_opt = 0.0
+            
+    f_sim_total = simulated_total_cmd_opt
+    h_sim_diff = pdc_target_adjusted_with_python_boost - en_cours_stock - f_sim_total
+    i_sim_abs_diff = abs(h_sim_diff)
+    k_sim_var_pdc = h_sim_diff / pdc_simulation_base_for_kvar if pdc_simulation_base_for_kvar != 0 else 0.0
+    l_sim_var_abs_pdc = abs(k_sim_var_pdc)
+    
+    # Les logs de détail par ligne de ccdo ne sont plus pertinents ici, 
+    # car le calcul est maintenant global sur df_detail_filtered.
+    # On peut ajouter un log pour F_sim_total si besoin.
+    if context and "solver" not in context.lower() :
+        print(f"      RECALC_ROW_VEC ({context}): JKL=[{j_factor_trial:.3f},{k_factor_trial:.3f},{l_factor_trial:.3f}], H_py={h_boost_py_trial:.3f} -> F_sim_Total={f_sim_total:.2f}, I_sim={i_sim_abs_diff:.2f}")
+
+    return {
+        'H_sim': h_sim_diff, 
+        'I_sim': i_sim_abs_diff, 
+        'K_sim_var_pdc': k_sim_var_pdc,
+        'L_sim_var_abs_pdc': l_sim_var_abs_pdc, 
+        'F_sim_total': f_sim_total
+    }
+
+# ... (objective_minimize_scalar_j et objective_differential_evolution_jkl restent inchangées) ...
+def objective_minimize_scalar_j(j_val_trial): 
+    state = current_row_state_for_solver
+    sim_res = recalculate_for_row(
+        state['pdc_simulation_base'], state['pdc_simulation_base_for_kvar'], 
+        state['en_cours_stock'], state['df_detail_filtered'], 
+        j_val_trial, j_val_trial, j_val_trial, 
+        state['h_boost_py_current'], "solver_scalar_obj" )
+    return sim_res['I_sim']
+
+def objective_differential_evolution_jkl(jkl_factors_trial): 
+    state = current_row_state_for_solver
+    j_trial, k_trial, l_trial = jkl_factors_trial[0], jkl_factors_trial[1], jkl_factors_trial[2]
+    sim_res = recalculate_for_row(
+        state['pdc_simulation_base'], state['pdc_simulation_base_for_kvar'],
+        state['en_cours_stock'], state['df_detail_filtered'], 
+        j_trial, k_trial, l_trial, 
+        state['h_boost_py_current'], "solver_de_obj" )
+    return sim_res['I_sim']
+
+def limite_haute_basse_python(
+    pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, 
+    en_cours_stock, df_detail_filtered, 
+    row_pdc_sim_params_input, # Contient les Lims user lues de PDC_Sim.xlsx
+    type_produits_v2_debug 
+):
+    user_max_facteur_from_row = row_pdc_sim_params_input['Max Facteur']
+    user_max_fact_str = f"{user_max_facteur_from_row:.2%}" if pd.notna(user_max_facteur_from_row) else 'NaN'
+    print(f"    LHB_Python ({type_produits_v2_debug}): Entrée pdc_sim_base={pdc_simulation_base_input:.2f}, user_max_fact={user_max_fact_str}")
+    
+    work_j_initial, work_k_initial, work_l_initial = 1.0, 1.0, 1.0 
+    work_h_boost_py = 0.0                
+    
+    # LIRE les limites O,P,Q,S,T,U de l'utilisateur depuis row_pdc_sim_params_input
+    # Ce sont les valeurs de PDC_Sim.xlsx, qui seront ensuite MODIFIÉES par la logique LHB
+    work_o_lim = float(row_pdc_sim_params_input.get('Limite Basse Top 500', 1.0))
+    work_p_lim = float(row_pdc_sim_params_input.get('Limite Basse Top 3000', 1.0))
+    work_q_lim = float(row_pdc_sim_params_input.get('Limite Basse Autre', 1.0))
+    work_s_lim = float(row_pdc_sim_params_input.get('Limite Haute Top 500', 1.0))
+    work_t_lim = float(row_pdc_sim_params_input.get('Limite Haute Top 3000', 1.0))
+    work_u_lim = float(row_pdc_sim_params_input.get('Limite Haute Autre', 1.0))
+    print(f"      LHB_Py - Limites OPQSTU LUES de PDC_Sim (User): O={work_o_lim:.2f},P={work_p_lim:.2f},Q={work_q_lim:.2f}, S={work_s_lim:.2f},T={work_t_lim:.2f},U={work_u_lim:.2f}")
+    # print(f"      LHB_Py - JKL initiaux pour calculs LHB: [{work_j_initial:.2f},{work_k_initial:.2f},{work_l_initial:.2f}], H_py_init={work_h_boost_py:.2f}")
+
+    sim_res_calc1 = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, en_cours_stock, df_detail_filtered, 
+                                        work_j_initial, work_k_initial, work_l_initial, work_h_boost_py, 
+                                        f"LHB_Calc1_JKL1_H{work_h_boost_py:.2f}")
+    
+    if sim_res_calc1['K_sim_var_pdc'] > MARGE_POUR_BOOST_ET_L_VAR_SOLVER: work_h_boost_py = -MARGE_POUR_BOOST_ET_L_VAR_SOLVER
+    elif sim_res_calc1['K_sim_var_pdc'] < -MARGE_POUR_BOOST_ET_L_VAR_SOLVER: work_h_boost_py = MARGE_POUR_BOOST_ET_L_VAR_SOLVER
+    print(f"      LHB_Py - H_boost_py ajusté à: {work_h_boost_py:.2%}")
+    
+    sim_res_calc2_after_boost = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, en_cours_stock, df_detail_filtered, 
+                                                    work_j_initial, work_k_initial, work_l_initial, work_h_boost_py, 
+                                                    f"LHB_Calc2_JKL1_H{work_h_boost_py:.2f}")
+    k_var_pdc_apres_boost = sim_res_calc2_after_boost['K_sim_var_pdc']
+    # print(f"      LHB_Py - K_var_pdc après H_boost_py (JKL=1): {k_var_pdc_apres_boost:.2%}") # Déjà dans RECALC_SUMMARY
+
+    safe_user_max_facteur = float(user_max_facteur_from_row) if pd.notna(user_max_facteur_from_row) else 1.0
+
+    final_j_start_lhb, final_k_start_lhb, final_l_start_lhb = work_j_initial, work_k_initial, work_l_initial
+
+    if k_var_pdc_apres_boost > 0: 
+        print(f"      LHB_Py - K_var ({k_var_pdc_apres_boost:.2%}) > 0. MODIFICATION Lims: Basses O,P,Q=1. Hautes S,T,U={safe_user_max_facteur:.2%}.")
+        # work_o_lim, work_p_lim, work_q_lim = 1.0, 1.0, 1.0
+        work_s_lim, work_t_lim, work_u_lim = safe_user_max_facteur, safe_user_max_facteur, safe_user_max_facteur
+    else: 
+        print(f"      LHB_Py - K_var ({k_var_pdc_apres_boost:.2%}) <= 0. MODIFICATION Lims & JKL_start via cascade.")
+        work_s_lim, work_t_lim, work_u_lim = 1.0, 1.0, 1.0 
+        current_j_cascade, current_k_cascade, current_l_cascade = final_j_start_lhb, final_k_start_lhb, final_l_start_lhb
+
+        current_l_cascade = 0.0; work_q_lim = 0.0      
+        res_cascade_L0 = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, en_cours_stock, df_detail_filtered, 
+                                            current_j_cascade, current_k_cascade, current_l_cascade, 
+                                            work_h_boost_py, "LHB_CascadeL0")
+        if res_cascade_L0['K_sim_var_pdc'] <= 0:
+            current_k_cascade = 0.0; work_p_lim = 0.0         
+            res_cascade_K0 = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, en_cours_stock, df_detail_filtered, 
+                                                current_j_cascade, current_k_cascade, current_l_cascade, 
+                                                work_h_boost_py, "LHB_CascadeK0")
+            if res_cascade_K0['K_sim_var_pdc'] <= 0:
+                work_o_lim = 0.0     
+                # print(f"        LHB_Cascade - K_var encore <=0. Set O_lim=0.")
+        final_j_start_lhb, final_k_start_lhb, final_l_start_lhb = current_j_cascade, current_k_cascade, current_l_cascade
+        
+    final_sim_results_lhb = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, en_cours_stock, df_detail_filtered, 
+                                                final_j_start_lhb, final_k_start_lhb, final_l_start_lhb, 
+                                                work_h_boost_py, "LHB_FinalState")
+    
+    print(f"    LHB_Python ({type_produits_v2_debug}): Sortie. JKL_start_LHB=[{final_j_start_lhb:.2f},{final_k_start_lhb:.2f},{final_l_start_lhb:.2f}], H_py={work_h_boost_py:.2%}, Lims_Modifiées O={work_o_lim:.2f},P={work_p_lim:.2f},Q={work_q_lim:.2f}, S={work_s_lim:.2f},T={work_t_lim:.2f},U={work_u_lim:.2f}")
+    return (final_j_start_lhb, final_k_start_lhb, final_l_start_lhb, work_h_boost_py, 
+            work_o_lim, work_p_lim, work_q_lim, work_s_lim, work_t_lim, work_u_lim, 
+            final_sim_results_lhb)
+
+def optimisation_macro_python(
+    pdc_simulation_base_input, 
+    pdc_simulation_base_for_kvar_input, 
+    en_cours_stock, 
+    df_detail_filtered,
+    # JKL_start et H_boost_py viennent de la sortie de LHB Python
+    j_start_optim_lhb, k_start_optim_lhb, l_start_optim_lhb, h_boost_py_from_lhb, 
+    # row_params_and_lhb_limits contient les params originaux de PDC_Sim ET les limites O,P,Q,S,T,U MODIFIÉES par LHB Python
+    row_params_and_lhb_limits 
+):
+    print(f"    Optimisation_Macro: Entrée JKL_start_LHB=[{j_start_optim_lhb:.2f},{k_start_optim_lhb:.2f},{l_start_optim_lhb:.2f}], H_py={h_boost_py_from_lhb:.2%}")
+    
+    # Utiliser les limites O,P,Q,S,T,U qui ont été MODIFIÉES par limite_haute_basse_python
+    lim_bas_j = float(row_params_and_lhb_limits['LHB_O_lim'])
+    lim_bas_k = float(row_params_and_lhb_limits['LHB_P_lim'])
+    lim_bas_l = float(row_params_and_lhb_limits['LHB_Q_lim'])
+    lim_haut_j = float(row_params_and_lhb_limits['LHB_S_lim'])
+    lim_haut_k = float(row_params_and_lhb_limits['LHB_T_lim'])
+    lim_haut_l = float(row_params_and_lhb_limits['LHB_U_lim'])
+    print(f"      Opt - Limites LHB_Modifiées utilisées: J:[{lim_bas_j:.2f}-{lim_haut_j:.2f}], K:[{lim_bas_k:.2f}-{lim_haut_k:.2f}], L:[{lim_bas_l:.2f}-{lim_haut_l:.2f}]")
+    
+    user_min_facteur = float(row_params_and_lhb_limits['Min Facteur']) if pd.notna(row_params_and_lhb_limits['Min Facteur']) else 0.0
+    user_max_facteur = float(row_params_and_lhb_limits['Max Facteur']) if pd.notna(row_params_and_lhb_limits['Max Facteur']) else 1.0
+
+    # TypeLissage basé sur les limites O,P,Q MODIFIÉES par LHB
+    # VBA: "If (Cells(i, PremiereColonneLimiteBasse) * Cells(i, PremiereColonneLimiteBasse + 1) * Cells(i, PremiereColonneLimiteBasse + 2)) >= 1 Then"
+    if (lim_bas_j * lim_bas_k * lim_bas_l >= 1.0): 
+        type_lissage = 1 # Hausse
+    else: 
+        type_lissage = 0 # Baisse
+    print(f"      Opt - TypeLissage: {'Hausse' if type_lissage == 1 else 'Baisse'} (Prod Lims Basses LHB_Modifiées = {lim_bas_j * lim_bas_k * lim_bas_l:.2f})")
+
+    # VBA: "If Cells(i, ColonneBorneMin) = Cells(i, ColonneBorneMax) Then"
+    if user_min_facteur == user_max_facteur:
+        val_fixee_user = user_max_facteur # C'est la BorneMax utilisateur
+        # VBA: ".Range(.Cells(i, PremiereColonneParametrage), ...).Value = Cells(i, ColonneBorneMax).Value"
+        # Les JKL finaux sont cette val_fixee_user, MAIS DOIVENT RESPECTER les limites LHB (O,P,Q,S,T,U)
+        final_j = min(max(val_fixee_user, lim_bas_j), lim_haut_j)
+        final_k = min(max(val_fixee_user, lim_bas_k), lim_haut_k)
+        final_l = min(max(val_fixee_user, lim_bas_l), lim_haut_l)
+        print(f"      Opt - User Min/Max Facteur identical ({val_fixee_user:.2%}). JKL finaux (capés par Lims LHB_Modifiées): J={final_j:.2%}, K={final_k:.2%}, L={final_l:.2%}")
+        
+        sim_results_for_output = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, 
+                                                    en_cours_stock, df_detail_filtered, 
+                                                    final_j, final_k, final_l, h_boost_py_from_lhb, 
+                                                    "Opt_UserMinMaxIdentical")
+        return False, type_lissage, final_j, final_k, final_l, h_boost_py_from_lhb, sim_results_for_output
+
+    # VBA: "Else ... .Range(.Cells(i, PremiereColonneParametrage), ...).Value = Cells(i, ColonneBorneMax).Value"
+    # Test avec user_max_facteur, capé par les limites LHB (O,P,Q,S,T,U)
+    j_test_bm = min(max(user_max_facteur, lim_bas_j), lim_haut_j)
+    k_test_bm = min(max(user_max_facteur, lim_bas_k), lim_haut_k)
+    l_test_bm = min(max(user_max_facteur, lim_bas_l), lim_haut_l)
+    print(f"      Opt - Test avec JKL = User Max Facteur ({user_max_facteur:.2%}), capés par Lims LHB_Modifiées à JKL=[{j_test_bm:.2f},{k_test_bm:.2f},{l_test_bm:.2f}]")
+    
+    sim_results_test_user_max = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input,
+                                                en_cours_stock, df_detail_filtered, 
+                                                j_test_bm, k_test_bm, l_test_bm, h_boost_py_from_lhb, 
+                                                "Opt_TestUserMaxFact")
+    print(f"      Opt - Résultats avec Test User Max Fact: I_sim={sim_results_test_user_max['I_sim']:.2f}, K_var={sim_results_test_user_max['K_sim_var_pdc']:.2%}")
+
+    # VBA: "If Cells(i + DecalageParametreSimulation, ColonneResultatVariationRelative).Value <= 0 Then .Range(...JKL...).Value = 1"
+    # Si K_var du test avec UserMaxFacteur est <=0, les JKL pour la décision et pour le solveur sont ceux de LHB (j_start_optim_lhb etc.)
+    # Et si pas de solveur, ce sont aussi ces JKL de LHB qui sont gardés.
+    if sim_results_test_user_max['K_sim_var_pdc'] <= 0: 
+        print(f"      Opt - K_var_pdc ({sim_results_test_user_max['K_sim_var_pdc']:.2%}) <= 0 après Test User Max. "
+              f"Utilisation des JKL_start_LHB pour décision Solveur et comme JKL finaux (si pas de Solveur): [{j_start_optim_lhb:.2f},{k_start_optim_lhb:.2f},{l_start_optim_lhb:.2f}]")
+        
+        jkl_to_use_for_decision_and_final_no_solver = [j_start_optim_lhb, k_start_optim_lhb, l_start_optim_lhb]
+        # On a besoin des résultats avec ces JKL_LHB pour la condition du solveur
+        results_for_solver_decision = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, 
+                                                          en_cours_stock, df_detail_filtered,
+                                                          j_start_optim_lhb, k_start_optim_lhb, l_start_optim_lhb, 
+                                                          h_boost_py_from_lhb, "Opt_DecisionWithLHB_JKL")
+    else: # K_var_pdc > 0 après test UserMaxFacteur
+        # On utilise les résultats du test UserMaxFacteur pour la décision.
+        # Et si pas de solveur, on garde ces JKL du test UserMaxFacteur.
+        jkl_to_use_for_decision_and_final_no_solver = [j_test_bm, k_test_bm, l_test_bm]
+        results_for_solver_decision = sim_results_test_user_max
+        print(f"      Opt - K_var_pdc > 0 après Test User Max. JKL finaux (si pas solveur) = TestUserMax JKL. Décision avec TestUserMax résultats.")
+
+    # Condition d'appel du Solveur (basée sur les résultats de `results_for_solver_decision`)
+    condition_L = results_for_solver_decision['L_sim_var_abs_pdc'] > MARGE_POUR_BOOST_ET_L_VAR_SOLVER
+    condition_I = results_for_solver_decision['I_sim'] > MARGE_I_POUR_SOLVER_CONDITION
+    
+    if condition_L and condition_I:
+        print(f"      Opt - Solver REQUIS. (L_var_abs={results_for_solver_decision['L_sim_var_abs_pdc']:.2%} > {MARGE_POUR_BOOST_ET_L_VAR_SOLVER:.2%}, "
+              f"ET I_sim={results_for_solver_decision['I_sim']:.2f} > {MARGE_I_POUR_SOLVER_CONDITION:.2f})")
+        # Le solveur partira des JKL de LHB (j_start_optim_lhb, etc.) car le VBA remet JKL à 1 si K_var_test_max <=0 avant d'appeler le solveur
+        # et j_start_optim_lhb etc. sont typiquement 1 ou 0.
+        return True, type_lissage, j_start_optim_lhb, k_start_optim_lhb, l_start_optim_lhb, h_boost_py_from_lhb, results_for_solver_decision
+    else:
+        print(f"      Opt - Solver NON requis.")
+        # Les JKL finaux sont ceux déterminés par la logique ci-dessus
+        j_final, k_final, l_final = jkl_to_use_for_decision_and_final_no_solver
+        return False, type_lissage, j_final, k_final, l_final, h_boost_py_from_lhb, results_for_solver_decision
+
+def solver_macro_python(
+    pdc_simulation_base_input, pdc_simulation_base_for_kvar_input,
+    en_cours_stock, df_detail_filtered,
+    j_start_solver, k_start_solver, l_start_solver, h_boost_py_for_solver, 
+    type_lissage, 
+    row_params_with_lhb_limits # Contient les Lims LHB MODIFIÉES
+):
+    global current_row_state_for_solver
+    current_row_state_for_solver = {
+        'pdc_simulation_base': pdc_simulation_base_input, 
+        'pdc_simulation_base_for_kvar': pdc_simulation_base_for_kvar_input,
+        'en_cours_stock': en_cours_stock, 
+        'df_detail_filtered': df_detail_filtered, 
+        'h_boost_py_current': h_boost_py_for_solver, 
+    }
+    
+    final_j, final_k, final_l = float(j_start_solver), float(k_start_solver), float(l_start_solver) 
+    print(f"    Solver_Macro: Entrée JKL_start_LHB=[{final_j:.2f},{final_k:.2f},{final_l:.2f}], H_py={h_boost_py_for_solver:.2%}, TypeLissage={type_lissage}")
+
+    lim_bas_j_lhb = float(row_params_with_lhb_limits['LHB_O_lim'])
+    lim_haut_j_lhb = float(row_params_with_lhb_limits['LHB_S_lim'])
+    lim_bas_k_lhb = float(row_params_with_lhb_limits['LHB_P_lim'])
+    lim_haut_k_lhb = float(row_params_with_lhb_limits['LHB_T_lim'])
+    lim_bas_l_lhb = float(row_params_with_lhb_limits['LHB_Q_lim'])
+    lim_haut_l_lhb = float(row_params_with_lhb_limits['LHB_U_lim'])
+    print(f"      Solver - Limites LHB_Modifiées utilisées: J:[{lim_bas_j_lhb:.2f}-{lim_haut_j_lhb:.2f}], K:[{lim_bas_k_lhb:.2f}-{lim_haut_k_lhb:.2f}], L:[{lim_bas_l_lhb:.2f}-{lim_haut_l_lhb:.2f}]")
+
+    if type_lissage == 1: 
+        print(f"      Solver - Mode Hausse (minimize_scalar)")
+        if lim_bas_j_lhb > lim_haut_j_lhb : 
+            print(f"        Lims J invalides ([{lim_bas_j_lhb:.3f},{lim_haut_j_lhb:.3f}]). JKL finaux = JKL_start_LHB.")
+        elif lim_bas_j_lhb == lim_haut_j_lhb:
+            print(f"        Lims J identiques [{lim_bas_j_lhb:.3f}]. JKL fixés à cette valeur.")
+            final_j = final_k = final_l = lim_bas_j_lhb # J=K=L
+        else:
+            res_scalar = minimize_scalar(objective_minimize_scalar_j, bounds=(lim_bas_j_lhb, lim_haut_j_lhb), method='bounded')
+            if res_scalar.success: 
+                j_optimal_scalar = res_scalar.x
+                print(f"        minimize_scalar succès: J_optimal_brut={j_optimal_scalar:.4f}.")
+                # Appliquer la logique de capage Excel pour K et L
+                final_j = j_optimal_scalar
+                final_k_brut = final_j # K suit J
+                final_k = min(max(final_k_brut, lim_bas_k_lhb), lim_haut_k_lhb) # K = J, capé par bornes de K (LHB)
+                
+                final_l_brut = final_k # L suit K (déjà capé)
+                final_l = min(max(final_l_brut, lim_bas_l_lhb), lim_haut_l_lhb) # L = K_capé, capé ensuite par bornes de L (LHB)
+                print(f"        JKL après capage Excel style: [{final_j:.4f},{final_k:.4f},{final_l:.4f}]")
+            else: 
+                print(f"        minimize_scalar échec. JKL restent à JKL_start_LHB [{j_start_solver:.3f},{k_start_solver:.3f},{l_start_solver:.3f}]")
+    
+    else: # Cas Baisse (type_lissage == 0)
+        # ... (code pour differential_evolution reste le même que dans votre version précédente qui fonctionnait pour TypeLissage=0)
+        print(f"      Solver - Mode Baisse (differential_evolution)")
+        def sanitize_bound(low, high, default_low=0.0, default_high=1.0): # Sanitize pour DE
+            low_f, high_f = float(low), float(high)
+            if high_f < low_f: return (low_f, low_f) 
+            return (low_f, high_f) 
+
+        bounds_de = [
+            sanitize_bound(lim_bas_j_lhb, lim_haut_j_lhb), 
+            sanitize_bound(lim_bas_k_lhb, lim_haut_k_lhb), 
+            sanitize_bound(lim_bas_l_lhb, lim_haut_l_lhb) 
+        ]
+        
+        if all(b[0] >= b[1] for b in bounds_de): 
+            print(f"        Toutes lims DE plates/invalides. JKL fixés à leurs bornes basses LHB.")
+            final_j, final_k, final_l = bounds_de[0][0], bounds_de[1][0], bounds_de[2][0]
+        else:
+            def constraint_j_ge_k_ge_l(jkl_arr): return np.array([jkl_arr[0] - jkl_arr[1], jkl_arr[1] - jkl_arr[2]])
+            nlc = NonlinearConstraint(constraint_j_ge_k_ge_l, 0, np.inf)
+            
+            initial_guess_de = [final_j, final_k, final_l] 
+            for i_g in range(3): 
+                initial_guess_de[i_g] = min(max(initial_guess_de[i_g], bounds_de[i_g][0]), bounds_de[i_g][1])
+            
+            print(f"        DE 1er run. Bornes sanitizées: J:{bounds_de[0]}, K:{bounds_de[1]}, L:{bounds_de[2]}. x0 clippé: {initial_guess_de}")
+            solver_res_1 = differential_evolution(
+                objective_differential_evolution_jkl, bounds_de, constraints=[nlc], x0=initial_guess_de, 
+                maxiter=50, popsize=30, tol=0.001, mutation=(0.5,1), recombination=0.7, disp=False, seed=42
+            )
+            if solver_res_1.success: final_j, final_k, final_l = solver_res_1.x; print(f"        DE 1er run succès: JKL optimisé à [{final_j:.3f},{final_k:.3f},{final_l:.3f}]")
+            else: print(f"        DE 1er run échec. JKL restent à x0 ({initial_guess_de}).") 
+            
+            temp_res_after_1st_run = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, en_cours_stock, df_detail_filtered, final_j, final_k, final_l, h_boost_py_for_solver, "Solver_Post1stDE")
+            
+            if temp_res_after_1st_run['L_sim_var_abs_pdc'] > MARGE_POUR_BOOST_ET_L_VAR_SOLVER:
+                print(f"        DE 2nd run requis (L_var_abs={temp_res_after_1st_run['L_sim_var_abs_pdc']:.2%} > {MARGE_POUR_BOOST_ET_L_VAR_SOLVER:.2%}).")
+                x0_2nd_run = [final_j, final_k, final_l] 
+                for i_g in range(3): x0_2nd_run[i_g] = min(max(x0_2nd_run[i_g], bounds_de[i_g][0]), bounds_de[i_g][1])
+
+                solver_res_2 = differential_evolution(
+                    objective_differential_evolution_jkl, bounds_de, constraints=[nlc], x0=x0_2nd_run, 
+                    maxiter=150, popsize=100, tol=0.001, mutation=(0.5,1), recombination=0.7, disp=False, seed=43                 )
+                if solver_res_2.success: final_j, final_k, final_l = solver_res_2.x; print(f"        DE 2nd run succès: JKL optimisé à [{final_j:.3f},{final_k:.3f},{final_l:.3f}]")
+                else: print(f"        DE 2nd run échec pour améliorer.")
+            else: print(f"        DE 1er run suffisant (L_var_abs={temp_res_after_1st_run['L_sim_var_abs_pdc']:.2%}).")
+
+    if type_lissage == 0: 
+        current_j_post_solve = float(final_j) 
+        current_k_post_solve = float(final_k) 
+        current_l_post_solve = float(final_l) 
+        final_j = current_j_post_solve
+        final_k = min(current_k_post_solve, current_j_post_solve)
+        final_l = min(current_l_post_solve, final_k)
+        print(f"      Solver - Après contrainte J>=K>=L (si Baisse): JKL=[{final_j:.3f},{final_k:.3f},{final_l:.3f}]")
+
+    final_sim_results = recalculate_for_row(pdc_simulation_base_input, pdc_simulation_base_for_kvar_input, en_cours_stock, df_detail_filtered, final_j, final_k, final_l, h_boost_py_for_solver, "Solver_Final")
+    print(f"    Solver_Macro - Sortie: JKL=[{final_j:.3f},{final_k:.3f},{final_l:.3f}], I_sim={final_sim_results['I_sim']:.2f}")
+    return final_j, final_k, final_l, h_boost_py_for_solver, final_sim_results
+
+
+# --- Boucle Principale ---
+if __name__ == "__main__":
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    PDC_SIM_FILE_INPUT = os.path.join(SCRIPT_DIR, "PDC_Sim_Input_For_Optim.xlsx") 
+    DETAIL_FILE_INPUT = os.path.join(SCRIPT_DIR, "initial_merged_predictions.csv")
+    OUTPUT_FILE = os.path.join(SCRIPT_DIR, "PDC_Sim_Optimized_Python.xlsx")
+
+    if not (os.path.exists(PDC_SIM_FILE_INPUT) and os.path.exists(DETAIL_FILE_INPUT)):
+        print(f"Erreur: {PDC_SIM_FILE_INPUT} ou {DETAIL_FILE_INPUT} non trouvé dans {SCRIPT_DIR}")
+        exit()
+
+    print("--- DÉBUT DU CHARGEMENT DES DONNÉES ---")
+    df_pdc_sim_input, df_detail = load_data(PDC_SIM_FILE_INPUT, DETAIL_FILE_INPUT)
+    print("--- FIN DU CHARGEMENT DES DONNÉES ---")
+    
+    # --- Bloc de débogage pour les valeurs uniques de matching ---
+    # ... (peut être gardé ou commenté) ...
+    print("\nDEBUG MATCHING - Valeurs uniques pour le matching AVANT LA BOUCLE :")
+    print(f"  PDC_Sim 'Type de produits V2' (unique, lower): {sorted(df_pdc_sim_input['Type de produits V2'].unique())}")
+    print(f"  PDC_Sim 'Jour livraison' (unique, date): {sorted(df_pdc_sim_input['Jour livraison'].dt.date.unique())}")
+    if 'BM' in df_detail.columns: print(f"  Détail.csv 'BM' (unique, lower): {sorted(df_detail['BM'].unique())}")
+    if 'DATE_LIVRAISON_V2' in df_detail.columns:
+        valid_dates_detail = df_detail['DATE_LIVRAISON_V2'].dropna()
+        if not valid_dates_detail.empty: print(f"  Détail.csv 'DATE_LIVRAISON_V2' (unique, date): {sorted(valid_dates_detail.dt.date.unique())}")
+    print("-" * 30)
+
+    df_pdc_sim_results = df_pdc_sim_input.copy()
+    cols_python_results = ['PY_Opt_J', 'PY_Opt_K', 'PY_Opt_L', 'PY_Opt_H_Boost', 
+                           'PY_F_Sim', 'PY_I_Sim', 'PY_TypeLissage', 'PY_Comment_Optim',
+                           'LHB_O_lim', 'LHB_P_lim', 'LHB_Q_lim', 'LHB_S_lim', 'LHB_T_lim', 'LHB_U_lim',
+                           'LHB_J_start', 'LHB_K_start', 'LHB_L_start']
+    for col in cols_python_results: df_pdc_sim_results[col] = np.nan
+    df_pdc_sim_results['PY_Comment_Optim'] = ""
+
+    print(f"\n--- DÉBUT DE L'OPTIMISATION GLOBALE ({len(df_pdc_sim_input)} lignes à traiter) ---")
+    # ... (le reste de la boucle principale comme dans votre dernière version, 
+    #      en s'assurant d'appeler la version corrigée de limite_haute_basse_python
+    #      et de passer current_row_params_for_macros correctement)
+
+    for index, row_data_orig_pdc_sim in df_pdc_sim_input.iterrows():
+        print(f"\nTraitement Ligne {index}: {row_data_orig_pdc_sim['Type de produits V2']} @ {row_data_orig_pdc_sim['Jour livraison'].strftime('%Y-%m-%d') if pd.notnull(row_data_orig_pdc_sim['Jour livraison']) else 'Date Invalide'}")
+        
+        current_row_params_for_macros = row_data_orig_pdc_sim.copy() 
+        type_prod_v2_current = current_row_params_for_macros['Type de produits V2'] # Déjà lower de load_data
+        jour_liv_current = current_row_params_for_macros['Jour livraison']
+
+        if pd.isna(jour_liv_current) or pd.isna(type_prod_v2_current) or pd.isna(current_row_params_for_macros['PDC']):
+            df_pdc_sim_results.loc[index, 'PY_Comment_Optim'] = "Données clé manquantes (V2, Jour, PDC)"; continue
+        
+        pdc_sim_base_val = float(current_row_params_for_macros['PDC'])
+        en_cours_val = float(current_row_params_for_macros['En-cours']) if pd.notna(current_row_params_for_macros['En-cours']) else 0.0
+        
+        df_detail_filt_current = df_detail[(df_detail['BM'] == type_prod_v2_current) & \
+                                     (df_detail['DATE_LIVRAISON_V2'] == jour_liv_current)].copy()
+        
+        # --- Bloc de test pour cf_main_module.get_cf_optimisee_for_detail_line ---
+        DEBUG_TARGET_INDEX_FOR_CCDO_TEST = 0 # Mettre à -1 pour désactiver ce test détaillé
+        if index == DEBUG_TARGET_INDEX_FOR_CCDO_TEST: 
+            print(f"  DEBUG Ligne {index} - Type: {type_prod_v2_current}, Date: {jour_liv_current}")
+            print(f"    Taille de df_detail_filt_current: {len(df_detail_filt_current)}")
+            detail_row_for_debug = None 
+            if not df_detail_filt_current.empty:
+                print(f"    Recherche d'une ligne de détail avec 'Commande Finale avec mini et arrondi SM à 100%' > 0 pour test...")
+                bp_col_name = 'Commande Finale avec mini et arrondi SM à 100%'
+                lignes_detail_test_bp_positif = df_detail_filt_current[df_detail_filt_current[bp_col_name] > 0] if bp_col_name in df_detail_filt_current else pd.DataFrame()
+                
+                if not lignes_detail_test_bp_positif.empty:
+                    detail_row_for_debug = lignes_detail_test_bp_positif.iloc[0].to_dict()
+                    print("    Première ligne de détail AVEC BP > 0 trouvée pour le test cf_main_module:")
+                elif not df_detail_filt_current.empty:
+                    print("    AUCUNE ligne de détail trouvée avec BP > 0. Utilisation de la première ligne de détail disponible (BP pourrait être 0).")
+                    detail_row_for_debug = df_detail_filt_current.iloc[0].to_dict()
+                
+                if detail_row_for_debug:
+                    cols_to_show_detail = ['BM', 'Top', 'BQ', bp_col_name, 'CODE_METI','Ean_13']
+                    cols_present = [c for c in cols_to_show_detail if c in detail_row_for_debug]
+                    print(f"      Données détail pour test: { {k: detail_row_for_debug.get(k) for k in cols_present} }")
+                    print(f"    TESTING cf_main_module.get_cf_optimisee_for_detail_line:")
+                    cf_test_jkl1 = cf_main_module.get_cf_optimisee_for_detail_line(detail_row_for_debug, 1.0, 1.0, 1.0)
+                    print(f"      Résultat direct cf_main_module avec JKL=1.0: CF = {cf_test_jkl1}")
+                    cf_test_jkl4 = cf_main_module.get_cf_optimisee_for_detail_line(detail_row_for_debug, 4.0, 4.0, 4.0)
+                    print(f"      Résultat direct cf_main_module avec JKL=4.0: CF = {cf_test_jkl4}")
+            else: print("    df_detail_filt_current est VIDE pour le test cf_main_module.")
+
+
+        
+        # --- Fin du Bloc de test ---
+        
+        j_lhb, k_lhb, l_lhb, h_boost_py_lhb, \
+        o_lim_lhb, p_lim_lhb, q_lim_lhb, \
+        s_lim_lhb, t_lim_lhb, u_lim_lhb, \
+        results_after_lhb = limite_haute_basse_python(
+            pdc_sim_base_val, pdc_sim_base_val, 
+            en_cours_val, df_detail_filt_current, 
+            current_row_params_for_macros, # Contient les Limites User lues de PDC_Sim
+            type_prod_v2_current 
+        )
+        current_row_params_for_macros['LHB_O_lim'] = o_lim_lhb; current_row_params_for_macros['LHB_P_lim'] = p_lim_lhb; current_row_params_for_macros['LHB_Q_lim'] = q_lim_lhb
+        current_row_params_for_macros['LHB_S_lim'] = s_lim_lhb; current_row_params_for_macros['LHB_T_lim'] = t_lim_lhb; current_row_params_for_macros['LHB_U_lim'] = u_lim_lhb
+        
+        df_pdc_sim_results.loc[index, ['LHB_O_lim', 'LHB_P_lim', 'LHB_Q_lim', 'LHB_S_lim', 'LHB_T_lim', 'LHB_U_lim']] = \
+            [o_lim_lhb, p_lim_lhb, q_lim_lhb, s_lim_lhb, t_lim_lhb, u_lim_lhb]
+        df_pdc_sim_results.loc[index, ['LHB_J_start', 'LHB_K_start', 'LHB_L_start']] = [j_lhb, k_lhb, l_lhb]
+
+        needs_solver, type_lissage_py, \
+        j_post_optim_macro, k_post_optim_macro, l_post_optim_macro, \
+        h_boost_py_post_optim_macro, \
+        results_after_optim_decision = optimisation_macro_python(
+            pdc_sim_base_val, pdc_sim_base_val, 
+            en_cours_val, df_detail_filt_current, 
+            j_lhb, k_lhb, l_lhb, h_boost_py_lhb, 
+            current_row_params_for_macros 
+        )
+        df_pdc_sim_results.loc[index, 'PY_TypeLissage'] = type_lissage_py
+        
+        final_j_py, final_k_py, final_l_py = j_post_optim_macro, k_post_optim_macro, l_post_optim_macro
+        final_h_boost_py = h_boost_py_post_optim_macro
+        # results_after_optim_decision contient déjà F_sim et I_sim basés sur les JKL de cette étape
+        current_final_results_struct = results_after_optim_decision 
+        
+        if needs_solver:
+            final_j_py, final_k_py, final_l_py, \
+            final_h_boost_py, \
+            current_final_results_struct = solver_macro_python( # Cette variable stocke le dict de retour du solver
+                pdc_sim_base_val, pdc_sim_base_val, 
+                en_cours_val,df_detail_filt_current,
+                j_lhb,k_lhb,l_lhb, h_boost_py_lhb, 
+                type_lissage_py, 
+                current_row_params_for_macros 
+            )
+        
+        # S'assurer que F_sim et I_sim finaux sont bien ceux calculés avec les JKLH *finaux*
+        final_definitive_results_struct = recalculate_for_row(
+            pdc_sim_base_val, pdc_sim_base_val,
+            en_cours_val, df_detail_filt_current,
+            final_j_py, final_k_py, final_l_py, final_h_boost_py,
+            "Final_Recalc_For_Output"
+        )
+
+        df_pdc_sim_results.loc[index, 'PY_Opt_J'] = final_j_py
+        df_pdc_sim_results.loc[index, 'PY_Opt_K'] = final_k_py
+        df_pdc_sim_results.loc[index, 'PY_Opt_L'] = final_l_py
+        df_pdc_sim_results.loc[index, 'PY_Opt_H_Boost'] = final_h_boost_py
+        df_pdc_sim_results.loc[index, 'PY_F_Sim'] = final_definitive_results_struct.get('F_sim_total', np.nan)
+        df_pdc_sim_results.loc[index, 'PY_I_Sim'] = final_definitive_results_struct.get('I_sim', np.nan)
+        
+        current_comment = str(df_pdc_sim_results.loc[index, 'PY_Comment_Optim']) 
+        df_pdc_sim_results.loc[index, 'PY_Comment_Optim'] = "Optimisé" if pd.notna(final_definitive_results_struct.get('I_sim')) \
+                                                                else (current_comment if current_comment != "nan" and current_comment != "" else "Erreur/Non traité")
+        
+        print(f"  Résultats Ligne {index}: PY_JKL=[{final_j_py:.3%},{final_k_py:.3%},{final_l_py:.3%}], PY_H_Boost={final_h_boost_py:.2%}, PY_TypeLissage={type_lissage_py}, PY_F_sim={final_definitive_results_struct.get('F_sim_total',0):.2f}, PY_I_sim={final_definitive_results_struct.get('I_sim',0):.2f}")
+
+    try:
+        df_pdc_sim_results.to_excel(OUTPUT_FILE, index=False, engine='openpyxl')
+        print(f"\nOptimisation terminée. Résultats sauvegardés dans {OUTPUT_FILE}")
+    except Exception as e:
+        print(f"\nErreur lors de la sauvegarde dans {OUTPUT_FILE}: {e}")

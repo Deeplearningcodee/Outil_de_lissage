@@ -1,0 +1,197 @@
+Overall Goal:
+
+The script simulates an "Global Optimization" process. For a list of products, it tries to find the best "multiplicative factors" (J, K, L) to apply to a base command quantity. The goal is to make the final "Optimized Command" for each product result in a "Difference" (between a target stock level and the effects of the command) as close to zero as possible. This is done while respecting various constraints and user-defined limits.
+
+Key Sheets and Concepts (from your VBA description, mirrored in Python):
+
+Feuil8 (Optimization Sheet - simulated by Python data structures):
+
+Parameter Row (e.g., row 4 in Excel): Contains the J, K, L factors, a "Boost PDC" (H_param), and min/max limits (O,P,Q,S,T,U) for the J,K,L factors. The Python code stores these in a dictionary like product_params.
+
+Simulation/Data Row (e.g., row 18 in Excel): Contains product-specific data like "PDC stock cible" (target stock), "En-cours" (stock already ordered), "Commande SM à 100%" (base command). Formulas here calculate "Différence PDC / Commande," "Différence absolue" (the value to minimize), etc. The Python code stores these in product_data_sim.
+
+Décalage (Offset): The parameters on row idx_param affect the calculations on row idx_param + 14. This is implicitly handled by how product_params and product_data_sim are used together.
+
+Feuil13 (Macro Parameters Sheet - simulated by global Python constants):
+
+Contains global margins and thresholds (e.g., MARGE_MANOEUVRE_BOOST, MARGE_UVC_SOLVER).
+
+Main Python Functions and Their Roles (Simulating VBA Macros):
+
+recalculate(product_data, params_jklh):
+
+Purpose: This is the heart of the calculation engine, simulating how Excel recalculates cells when input values change.
+
+Inputs:
+
+product_data: Data for the specific product (target stock E_data_sim, on-order stock G_data_sim, base command N_data_sim, product category top_category_sim).
+
+params_jklh: Current optimization parameters (factors J_param, K_param, L_param, and H_param for Boost PDC).
+
+Actions:
+
+Calculates E_ajuste_sim (Adjusted Target Stock) by applying the H_param (Boost PDC) to E_data_sim.
+
+Selects the correct factor (J_param, K_param, or L_param) based on the product's top_category_sim ("Top 500", "Top 3000", or "Autre").
+
+Calculates F_sim (Optimized Command) by multiplying N_data_sim (Base Command) by the chosen factor.
+
+Calculates H_sim (Difference PDC / Command): E_ajuste_sim - G_data_sim - F_sim.
+
+Calculates I_sim (Absolute Difference): abs(H_sim). This is the value the optimizer tries to minimize.
+
+Calculates K_sim (Relative Variation PDC): H_sim / E_data_sim.
+
+Calculates L_sim (Absolute Relative Variation PDC): abs(K_sim).
+
+Output: A dictionary containing these calculated values (H_sim, I_sim, K_sim, L_sim, F_sim).
+
+limite_haute_basse(product_params, product_data_sim):
+
+Purpose: Simulates the Limite_Haute_Basse VBA macro. Initializes parameters and applies an initial "Boost PDC" if needed.
+
+Actions:
+
+Initialization:
+
+Sets default min/max limits for the J,K,L factors (O_param, P_param, Q_param, S_param, T_param, U_param) to 1.0 (100%) if they are not already provided in product_params. This allows user-defined limits to be used.
+
+Sets initial J,K,L factors to 1.0 (100%).
+
+Sets initial "Boost PDC" (H_param) to 0%.
+
+First recalculate(): Calls recalculate() to get initial difference and variation values.
+
+Boost PDC Decision:
+
+If the K_sim (Relative Variation PDC) is too high (greater than MARGE_MANOEUVRE_BOOST), it applies a negative H_param (e.g., -5%) to try and reduce the target stock.
+
+If K_sim is too low (less than -MARGE_MANOEUVRE_BOOST), it applies a positive H_param.
+
+Second recalculate(): Calls recalculate() again with the (potentially new) H_param.
+
+Output: The results from the second recalculate().
+
+optimisation_macro(product_params, product_data_sim, sim_results_after_lhb):
+
+Purpose: Simulates the Optimisation VBA macro. Decides if the main "Solver" (optimizer) needs to be called.
+
+Actions:
+
+Determine TypeLissage (Smoothing Type: "Hausse" (Increase) or "Baisse" (Decrease)):
+
+If O_param * P_param * Q_param >= 1.0, TypeLissage = 1 (Hausse). This means the lower limits for J,K,L don't force a decrease.
+
+Otherwise, TypeLissage = 0 (Baisse).
+
+Check User Min/Max Factor Limits (F_param_borne_min, G_param_borne_max):
+
+If these general min/max limits (provided by the user for the JKL factors) are identical:
+
+Set J,K,L factors to this fixed value (respecting the specific O,S,P,T,Q,U limits).
+
+No Solver is needed.
+
+Else (Min != Max):
+
+Test with Max User Limit: Temporarily set J,K,L to G_param_borne_max (the user's maximum allowed factor, again capped by O,S,P,T,Q,U).
+
+Call recalculate() to see the result.
+
+Solver Decision: If the I_sim (Absolute Difference) and L_sim (Absolute Relative Variation PDC) are still too large (above MARGE_I_SOLVER and MARGE_UVC_SOLVER respectively), then the Solver is needed.
+
+If the test values are good enough, the Solver is not called, and J,K,L remain at these test values.
+
+If the Solver is called, J,K,L are reset to their state after limite_haute_basse (typically 1.0) so the solver starts from a neutral point.
+
+Output: A boolean (call_solver) and the latest simulation results.
+
+objective_function_solver(factors_jkl_array) (for differential_evolution):
+
+Purpose: This is the function that the differential_evolution optimizer tries to minimize.
+
+Input: factors_jkl_array (an array containing the current trial values for J, K, L, or just J if TypeLissage=1).
+
+Actions:
+
+Retrieves the global current_product_state_for_solver (which holds product_data_sim and product_params like H_param).
+
+Updates temporary J,K,L parameters based on factors_jkl_array and TypeLissage:
+
+If TypeLissage = 1 (Hausse): K_param = J_param, L_param = J_param.
+
+If TypeLissage = 0 (Baisse): J, K, L are taken directly from factors_jkl_array.
+
+Calls recalculate() with these temporary J,K,L and the current H_param.
+
+Output: Returns the I_sim (Absolute Difference) from the recalculation. differential_evolution will try to find J,K,L values that make this I_sim as small as possible.
+
+solver_macro(product_params, product_data_sim):
+
+Purpose: Simulates the Solveur VBA macro. Performs the detailed optimization using Scipy's optimization functions.
+
+Actions:
+
+Sets up current_product_state_for_solver for the objective_function_solver.
+
+Handles TypeLissage = 1 (Hausse - one variable J, K=J, L=J):
+
+Uses scipy.optimize.minimize_scalar because it's efficient for single-variable bounded optimization.
+
+Defines a local objective_for_minimize_scalar function that only takes j_val.
+
+Calls minimize_scalar with bounds for J (O_param, S_param).
+
+Updates J_param, K_param, L_param with the result.
+
+Handles TypeLissage = 0 (Baisse - three variables J,K,L):
+
+Uses scipy.optimize.differential_evolution (a global optimizer good for more complex problems).
+
+Sets up bounds for J, K, and L using O,S, P,T, Q,U.
+
+Sets up a NonlinearConstraint to enforce J >= K >= L.
+
+Calls differential_evolution with the objective_function_solver.
+
+Updates J_param, K_param, L_param with the results.
+
+Second Run (for differential_evolution): If I_sim is still too high after the first run, it performs a second, longer run of differential_evolution starting from the previous best result.
+
+Calls recalculate() one last time with the final optimized J,K,L factors.
+
+Output: The final simulation results after optimization.
+
+Data Structures:
+
+produits_a_optimiser (List of Dictionaries):
+
+Each dictionary represents a product to be optimized.
+
+Contains a params sub-dictionary (for F_param_borne_min, G_param_borne_max, and user-defined O,P,Q,S,T,U limits for the solver).
+
+Contains a data_sim sub-dictionary (for product-specific data like E_data_sim, G_data_sim, N_data_sim, top_category_sim).
+
+Execution Flow (in the if __name__ == "__main__": block):
+
+Prints a start message.
+
+Loops through each produit_config in produits_a_optimiser.
+
+For each product:
+
+Calls limite_haute_basse() to initialize and get initial results.
+
+Calls optimisation_macro() to decide if the solver is needed and get results from testing the max user limit.
+
+If call_solver is true:
+
+Calls solver_macro() to perform the detailed optimization.
+
+Stores the final J,K,L factors, H_boost, and final simulation metrics (F_optimisee, I_final, L_var_abs_pdc_final).
+
+Prints a summary for the processed product.
+
+After processing all products, prints a final summary of J,K,L factors and other key metrics for each product.
+
+In essence, the Python script meticulously replicates the step-by-step logic of your VBA optimization, using Python functions for macros and data structures for Excel sheet data, and leveraging Scipy's optimization algorithms to replace Excel's Solver.

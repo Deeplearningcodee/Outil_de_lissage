@@ -1,0 +1,9 @@
+Zone de stockage;Type de produits;Gestion A/B - A/C;Poids du A/C calculé;Poids du A/C manuel;Poids du A/C final;Correction TS
+1060;Sec Méca;Oui;1.0;;1.0;0.0
+1061;Sec Homogène;Oui;1.0;;1.0;0.0
+1062;Sec Hétérogène;Oui;1.0;;1.0;0.0
+1063;Sec Hétérogène;Oui;1.0;;1.0;0.0
+1064;Sec Hétérogène;Oui;1.0;;1.0;0.0
+1070;Frais Méca;Non;1.0;;1.0;0.0
+1071;Frais Manuel;Non;1.0;;1.0;0.0
+1080;Surgelés;Non;1.0;;1.0;0.0
