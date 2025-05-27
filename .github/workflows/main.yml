@@ -28,6 +28,12 @@ jobs:
       - name: Install rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
+
+      - name: Test rclone connection by listing root
+        run: |
+          rclone ls "gdrive_remote:" -P
+          echo "--- Listing contenu du dossier spécifié (si accessible) ---"
+          rclone ls "gdrive_remote:${{ secrets.GDRIVE_FOLDER_ID }}" -P
       
       - name: Configure rclone for Google Drive
         env:
