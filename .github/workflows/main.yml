@@ -48,9 +48,8 @@ jobs:
           echo "Rclone configuration created successfully"
 
       - name: Download data from Google Drive
-        env:
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
+          GDRIVE_FOLDER_ID="1HwQYHUTF33-qQc8CnPQu2l1qOKQGThFO"
           echo "Downloading files from Google Drive folder ID: $GDRIVE_FOLDER_ID"
           rclone copy "gdrive_remote:$GDRIVE_FOLDER_ID" . --config ~/.config/rclone/rclone.conf -P --fast-list --transfers 8 --checkers 16
           echo "Download complete. Files in current directory:"
@@ -62,9 +61,8 @@ jobs:
           echo "main.py execution complete."
 
       - name: Upload results to Google Drive
-        env:
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
+          GDRIVE_FOLDER_ID="1HwQYHUTF33-qQc8CnPQu2l1qOKQGThFO"
           OUTPUT_FILE="merged_predictions.csv"
           if [ -f "$OUTPUT_FILE" ]; then
             echo "Uploading $OUTPUT_FILE to Google Drive..."
