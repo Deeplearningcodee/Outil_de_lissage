@@ -170,29 +170,52 @@ def create_encours_summary(df=None, date_start=None, days_to_include=7):
     # IDÉALEMENT: df (en entrée de create_encours_summary) devrait déjà avoir 'Type de produits V2'
     # OU, load_encours_data devrait le créer.
 
-    # Pivotons les données d'en-cours
-    # Assurons-nous que QUANTITE est numérique
+    # Pivotons les données d'en-cours    # Assurons-nous que QUANTITE est numérique
     if 'QUANTITE' not in df_filtered_for_dates.columns:
         print("  Encours ERREUR: Colonne 'QUANTITE' manquante.")
         return pd.DataFrame(0, index=dates_for_summary, columns=product_types_v2_ordered + ['Total']).rename_axis('Date')
     df_filtered_for_dates['QUANTITE'] = pd.to_numeric(df_filtered_for_dates['QUANTITE'], errors='coerce').fillna(0)
-
-    # Filtrer les commandes à ne pas exclure
-    df_to_pivot = df_filtered_for_dates[df_filtered_for_dates['Commande à exclure'] == "Non"]
-
-    # Pivoter pour avoir Dates en index, Type de produits V2 en colonnes, et somme des Quantités
-    # Assumons que df_to_pivot a maintenant une colonne 'Type de produits V2'
-    # Si ce n'est pas le cas, il faut l'ajouter dans load_encours_data ou ici.
-    # Pour cet exemple, je vais ajouter une colonne 'Type de produits V2' basée sur 'Type de produits'
-    # pour rendre le pivot possible. C'est une simplification.
-    if 'Type de produits V2' not in df_to_pivot.columns and 'Type de produits' in df_to_pivot.columns:
-        print("  Encours AVERTISSEMENT: 'Type de produits V2' non trouvé, utilisation de 'Type de produits' pour le pivot. Adapter si besoin.")
-        # Simple copie pour le nom, mais une vraie logique de mapping pourrait être nécessaire
-        df_to_pivot['Type de produits V2'] = df_to_pivot['Type de produits'] 
     
-    if 'Type de produits V2' not in df_to_pivot.columns:
-         print("  Encours ERREUR: 'Type de produits V2' est requis pour pivoter. Abandon.")
-         return pd.DataFrame(0, index=dates_for_summary, columns=product_types_v2_ordered + ['Total']).rename_axis('Date')
+    # Exclure les commandes PROMO (où 'Commande à exclure' == 'Oui')
+    df_to_pivot = df_filtered_for_dates[df_filtered_for_dates['Commande à exclure'] != 'Oui'].copy()
+    print(f"  Encours: {len(df_filtered_for_dates) - len(df_to_pivot)} commandes PROMO exclues.")
+    
+    # Créer la colonne 'Type de produits V2' en distribuant les types de base selon A/B et A/C
+    # basé sur la proximité de la date de livraison avec les dates de référence
+    def determine_ab_ac_variant(row):
+        base_type = row['Type de produits']
+        delivery_date = row['DATE_LIVRAISON']
+        
+        # Si le type de produit n'a pas de variants A/B et A/C, retourner le type de base
+        if base_type not in MacroParam.TYPES_PRODUITS_V2:
+            return base_type
+        
+        variants = MacroParam.TYPES_PRODUITS_V2[base_type]
+        
+        # Si pas de variants définis (liste vide ou contient seulement ""), retourner le type de base
+        if not variants or (len(variants) == 1 and variants[0] == ""):
+            return base_type
+        
+        # Pour les types avec variants A/B et A/C, déterminer selon la date
+        if "A/B" in variants and "A/C" in variants:
+            # Calculer la distance aux dates de référence
+            distance_ab = abs((delivery_date - MacroParam.DATE_REF_JOUR_AB).days)
+            distance_ac = abs((delivery_date - MacroParam.DATE_REF_JOUR_AC).days)
+            
+            # Choisir le variant le plus proche
+            if distance_ab <= distance_ac:
+                return f"{base_type} - A/B"
+            else:
+                return f"{base_type} - A/C"
+        
+        # Cas par défaut: retourner le type de base
+        return base_type
+    
+    # Appliquer la logique de détermination A/B vs A/C
+    df_to_pivot = df_to_pivot.copy()
+    df_to_pivot['Type de produits V2'] = df_to_pivot.apply(determine_ab_ac_variant, axis=1)
+    
+    print("  Encours: Colonne 'Type de produits V2' créée avec distribution A/B/A/C basée sur les dates de livraison.")
 
 
     pivot_df = pd.pivot_table(

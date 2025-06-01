@@ -3,7 +3,7 @@ import numpy as np
 import os
 from datetime import datetime, timedelta
 
-DATE_COMMANDE_STR = "27/05/2025" 
+DATE_COMMANDE_STR = "28/05/2025" 
 DATE_COMMANDE = pd.to_datetime(DATE_COMMANDE_STR, dayfirst=True)
 
 DATE_REF_JOUR_AB_STR = "30/05/2025" 

@@ -25,13 +25,13 @@ def get_processed_data():
         DETAIL_CSV,
         sep=';',
         encoding='latin1',
-        parse_dates=['DATE_COMMANDE'],
+        parse_dates=['DATE_COMMANDE', 'DATE_LIVRAISON', 'DATE_L2'], # MODIFIED
         dayfirst=True,
         engine='python'
     )
-
-    # 3. Calculer Date_L2_V2 = DATE_COMMANDE + 3 jours
-    df_detail['Date_L2_V2'] = MacroParam.DATE_COMMANDE + pd.Timedelta(days=3)
+    
+    df_detail['DATE_L1'] = df_detail['DATE_LIVRAISON']  # Utiliser la date de livraison V2
+    df_detail['Date_L2_V2'] = df_detail['DATE_L2']  # Utiliser la date L2 V2
 
     # 4. Charger les prévisions promo
     df_prev = pd.read_csv(
@@ -51,19 +51,18 @@ def get_processed_data():
             df.rename(columns={'CDBase':'CODE_METI'}, inplace=True)
 
     # 6. Nettoyer PrevisionJour en float
-    df_prev['PrevisionJour'] = (
-        df_prev['PrevisionJour']
-            .astype(str)
-            .str.replace(',','.',)
-            .astype(float)
+    df_prev['PrevisionJour'] = pd.to_numeric(
+        df_prev['PrevisionJour'].astype(str).str.replace(',', '.', regex=False),
+        errors='coerce'
     )
+    # .sum() will treat NaNs as 0 unless all are NaN for a group.
+    # If explicit 0s are needed for NaNs before sum, use .fillna(0)
+    # df_prev['PrevisionJour'] = df_prev['PrevisionJour'].fillna(0)
 
-    # Filter for dates within 3 weeks of 14/05/2025
     reference_date = MacroParam.DATE_COMMANDE
     three_weeks_ago = reference_date - pd.Timedelta(days=21)
     df_prev = df_prev[df_prev['JourPromo'] >= three_weeks_ago]
 
-    # 7. Définir la date de début fixe (14/05/2025)
     start_date = MacroParam.DATE_COMMANDE
 
     # 8. Calcul de Prev Promo C1-L2
@@ -71,18 +70,18 @@ def get_processed_data():
         mask = (
             (df_prev['CODE_METI'] == row['CODE_METI']) &
             (df_prev['JourPromo'] >= start_date) &
-            (df_prev['JourPromo'] <= row['Date_L2_V2'])
+            (df_prev['JourPromo'] < row['Date_L2_V2']) 
         )
-        return df_prev.loc[mask, 'PrevisionJour'].sum()
+        return df_prev.loc[mask, 'PrevisionJour'].sum().round(0)
 
     # 9 calculer Prev Promo L1-L2
     def calc_prev_promo_l1_l2(row):
         mask = (
             (df_prev['CODE_METI'] == row['CODE_METI']) &
-            (df_prev['JourPromo'] >= row['DATE_COMMANDE']+pd.Timedelta(days=2)) &
+            (df_prev['JourPromo'] >= row ['DATE_L1']) &
             (df_prev['JourPromo'] < row['Date_L2_V2'])
         )
-        return df_prev.loc[mask, 'PrevisionJour'].sum()
+        return df_prev.loc[mask, 'PrevisionJour'].sum().round(0)
 
     df_detail['Prev Promo C1-L2'] = df_detail.apply(calc_prev_promo_c1_l2, axis=1)
     df_detail['Prev Promo L1-L2'] = df_detail.apply(calc_prev_promo_l1_l2, axis=1)
@@ -96,5 +95,8 @@ if __name__ == "__main__":
     # 9. Afficher un extrait
     df_detail = get_processed_data()
     print(df_detail[['CODE_METI', 'Prev Promo C1-L2', 'Prev Promo L1-L2']].head(10))
+    #save to CSV for debugging
+    output_csv = os.path.join(CSV_FOLDER, 'PrevPromo_Output.csv')
+    df_detail.to_csv(output_csv, sep=';', index=False, encoding='latin1')
 
 

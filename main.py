@@ -77,6 +77,7 @@ casse_df = PrevCasse.get_processed_data()
 print("Processing Encours predictions...")
 encours_df = PrevEncours.get_processed_data()
 
+
 print("Processing TS values...")
 ts_df = Ts.get_processed_data()
 
@@ -124,11 +125,12 @@ merged_df = PrevFinal.get_processed_data(merged_df)
 
 # 4.6 Calculate supply multiplier factors
 print("Calculating supply multiplier factors...")
-merged_df = FacteurAppro.get_processed_data(merged_df)
-
+merged_df = FacteurAppro.get_processed_data(merged_df) 
 # 4.7 Calculate product types and top categories
 print("Calculating product types and top categories...")
-merged_df = TypeProduits.get_processed_data(merged_df)
+merged_df = TypeProduits.get_processed_data(merged_df) 
+
+
 
 # 4.75 Add Entrepôt Bloqué and Produit Bloqué columns
 print("Adding Entrepôt Bloqué and Produit Bloqué columns...")
