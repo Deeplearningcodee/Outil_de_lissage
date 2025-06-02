@@ -265,83 +265,89 @@ def calculate_sm_a_charger_test_ck(df):
                 print(f"      Inputs: CI='{ci_qte_maxi_charge}', BV_Lue='{bv_exclusion_lue}', Y={y_stock:.2f}, Z={z_ral:.2f}, AD_raw='{ad_coche_rao_raw}' (num:{ad_coche_rao}), BY={by_facteur_lissage:.2f}")
                 print(f"              CF={cf_cmd_opt_ts:.2f}, CD={cd_cmd_opt_sans_arrondi:.2f}, CJ={cj_algo_meti}, CE={ce_cmd_opt_arrondi_mini:.2f}")
                 print(f"              AA={aa_qte_prev_init1:.2f}, AB={ab_qte_prev_init2:.2f}, W={w_pcb:.2f}, AJ={aj_stock_reel:.2f}")
-
+            
             # --- Logique de la formule Excel ---
             if ci_qte_maxi_charge == "oui":
                 if print_debug_this_row: print(f"      CK Cond 1 (CI='oui'): Résultat -> 0")
                 return 0.0
 
-            # Condition modifiée pour BV ("hack" pour RAS)
-            condition_bv_ok_pour_calcul = (bv_exclusion_lue == macro_b84_valeur_attendue or 
-                                           bv_exclusion_lue == "RAS")
+            # Condition exacte selon Excel: BV2=Macro!$B$84 (pas de "hack" pour RAS)
+            condition_bv_equals_b84 = (bv_exclusion_lue == macro_b84_valeur_attendue)
 
             condition_speciale_1 = (
-                condition_bv_ok_pour_calcul and
+                condition_bv_equals_b84 and
                 macro_c21_coeff_exception == 0.0 and # Comparaison explicite avec float
                 (y_stock + z_ral < 1.0) and
                 ad_coche_rao == 54.0 # Comparaison explicite avec float
             )
             if print_debug_this_row:
                 print(f"      CK Éval Cond Spéciale 1:")
-                print(f"        cond_bv_ok (BV_Lue='{bv_exclusion_lue}' vs B84_Att='{macro_b84_valeur_attendue}' OR RAS)? {condition_bv_ok_pour_calcul}")
+                print(f"        BV_Lue='{bv_exclusion_lue}' == B84_Att='{macro_b84_valeur_attendue}'? {condition_bv_equals_b84}")
                 print(f"        C21_Coeff ({macro_c21_coeff_exception}) == 0.0? {macro_c21_coeff_exception == 0.0}")
                 print(f"        (Y ({y_stock:.2f}) + Z ({z_ral:.2f}) < 1.0)? {(y_stock + z_ral < 1.0)}")
                 print(f"        AD ({ad_coche_rao}) == 54.0? {ad_coche_rao == 54.0}")
                 print(f"        => Cond Spéciale 1 est {condition_speciale_1}")
-
+            
             if condition_speciale_1:
                 if print_debug_this_row: print(f"      CK Cond 2 (Spéciale 1): Résultat -> 1.0")
                 return 1.0
             
             condition_ad_ok = (ad_coche_rao == 54.0)
-            condition_globale_pour_max_calcul = (condition_bv_ok_pour_calcul and condition_ad_ok)
+            condition_globale_pour_max_calcul = (condition_bv_equals_b84 and condition_ad_ok)
 
             if print_debug_this_row:
                 print(f"      CK Éval Cond Globale pour MAX_Calcul:")
-                print(f"        cond_bv_ok? {condition_bv_ok_pour_calcul}")
+                print(f"        BV_equals_B84? {condition_bv_equals_b84}")
                 print(f"        cond_ad_ok (AD=54.0)? {condition_ad_ok}")
                 print(f"        => Cond Globale pour MAX_Calcul est {condition_globale_pour_max_calcul}")
 
-            if condition_globale_pour_max_calcul:
-                # Terme X = SI(ET(BY2>0;CF2>0);1;0)
-                terme_x_base = 1.0 if (by_facteur_lissage > 0 and cf_cmd_opt_ts > 0) else 0.0
-                
-                # Calcul interne pour Terme Y (avant arrondi)
+            # Calcul du terme complexe (toujours calculé maintenant)
+            # Terme X = SI(ET(BY2>0;CF2>0);1;0)
+            terme_x_base = 1.0 if (by_facteur_lissage > 0 and cf_cmd_opt_ts > 0) else 0.0
+            
+            # Calcul interne pour Terme Y (avant arrondi)
+            valeur_interne_pour_arrondi = 0.0
+            if cd_cmd_opt_sans_arrondi == 0: # SI(CD7=0;0;...)
                 valeur_interne_pour_arrondi = 0.0
-                if cd_cmd_opt_sans_arrondi == 0: # SI(CD7=0;0;...)
-                    valeur_interne_pour_arrondi = 0.0
-                else: # ...SI(CJ7=1;CE7-AA7-...;CE7-AB7-...)
-                    arrondi_sup_w_div_4 = np.ceil(w_pcb / 4.0)
-                    stock_pour_calcul_interne = y_stock # Default pour "RAO"
-                    if macro_c14_stock_source_pour_calcul.upper() == "REEL":
-                        stock_pour_calcul_interne = aj_stock_reel
-                    
-                    if cj_algo_meti == 1:
-                        valeur_interne_pour_arrondi = ce_cmd_opt_arrondi_mini - aa_qte_prev_init1 - arrondi_sup_w_div_4 + stock_pour_calcul_interne + z_ral
-                    else: # cj_algo_meti == 2 ou autre (ex: 0 si erreur de calcul pour CJ)
-                        valeur_interne_pour_arrondi = ce_cmd_opt_arrondi_mini - ab_qte_prev_init2 - arrondi_sup_w_div_4
+            else: # ...SI(CJ7=1;CE7-AA7-...;CE7-AB7-...)
+                arrondi_sup_w_div_4 = np.ceil(w_pcb / 4.0)
+                stock_pour_calcul_interne = y_stock # Default pour "RAO"
+                if macro_c14_stock_source_pour_calcul.upper() == "REEL":
+                    stock_pour_calcul_interne = aj_stock_reel
                 
-                # Le SIERREUR(interne_calcul;1) dans Excel
-                # Ici, on suppose que si le calcul interne n'a pas levé d'exception Python, il est valide.
-                # Si cd_cmd_opt_sans_arrondi était 0, valeur_interne_pour_arrondi est 0.
-                # Si une erreur était attendue pour devenir 1, il faudrait la simuler.
-                # Pour l'instant, on se base sur le calcul.
-                terme_y_arrondi = np.round(valeur_interne_pour_arrondi, 0)
-                
-                # Implémentation de MAX(X; Y*C21; MAX(X;Y))
+                if cj_algo_meti == 1:
+                    valeur_interne_pour_arrondi = ce_cmd_opt_arrondi_mini - aa_qte_prev_init1 - arrondi_sup_w_div_4 + stock_pour_calcul_interne + z_ral
+                else: # cj_algo_meti == 2 ou autre (ex: 0 si erreur de calcul pour CJ)
+                    valeur_interne_pour_arrondi = ce_cmd_opt_arrondi_mini - ab_qte_prev_init2 - arrondi_sup_w_div_4
+            
+            # Le SIERREUR(interne_calcul;1) dans Excel
+            # Ici, on suppose que si le calcul interne n'a pas levé d'exception Python, il est valide.
+            terme_y_arrondi = np.round(valeur_interne_pour_arrondi, 0)
+            
+            if condition_globale_pour_max_calcul:
+                # Cas: (BV=B84 AND AD=54) -> utiliser multiplication par C21
                 terme_y_fois_c21 = terme_y_arrondi * macro_c21_coeff_exception
                 max_x_y = max(terme_x_base, terme_y_arrondi)
                 resultat_ck = max(terme_x_base, terme_y_fois_c21, max_x_y)
                 
                 if print_debug_this_row: 
+                    print(f"        Condition globale VRAIE - Calcul avec C21:")
                     print(f"        Terme X: {terme_x_base:.2f}")
                     print(f"        Valeur Interne (avant arrondi): {valeur_interne_pour_arrondi:.2f}, Terme Y (Arrondi): {terme_y_arrondi:.2f}")
                     print(f"        Calcul MAX(X={terme_x_base:.2f}; Y*C21={terme_y_fois_c21:.2f}; MAX(X,Y)={max_x_y:.2f})")
                     print(f"        ==> Résultat CK: {resultat_ck:.2f}")
                 return resultat_ck
-            else: 
-                if print_debug_this_row: print(f"      CK Cond 3 (Globale pour MAX_Calcul) est FAUSSE. Résultat -> 0")
-                return 0.0
+            else:
+                # Cas: condition globale fausse -> calculer seulement MAX(X,Y) sans multiplication par C21
+                resultat_ck = max(terme_x_base, terme_y_arrondi)
+                
+                if print_debug_this_row: 
+                    print(f"        Condition globale FAUSSE - Calcul sans C21:")
+                    print(f"        Terme X: {terme_x_base:.2f}")
+                    print(f"        Valeur Interne (avant arrondi): {valeur_interne_pour_arrondi:.2f}, Terme Y (Arrondi): {terme_y_arrondi:.2f}")
+                    print(f"        Calcul MAX(X={terme_x_base:.2f}; Y={terme_y_arrondi:.2f})")
+                    print(f"        ==> Résultat CK: {resultat_ck:.2f}")
+                return resultat_ck
         
         except Exception as e_ck_row_exception:
             if print_debug_this_row: print(f"    ERREUR Exception dans calculate_ck_row pour {code_meti_debug}: {e_ck_row_exception}")

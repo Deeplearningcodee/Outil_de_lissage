@@ -420,46 +420,99 @@ def calculate_commande_finale_sans_mini_ni_arrondi(df): # BO
     if missing_columns:
         print(f"  ERREUR: Colonnes manquantes pour BO: {missing_columns}, df colonnes: {df.columns.tolist()}")
         for col_miss in missing_columns: df[col_miss] = 0 # Ajouter avec 0 si manque
-    has_position_jud = 'Position JUD' in df.columns
+    has_position_jud = 'Position JUD' in df.columns    
     def calculate_bo_row(row):
         try:
-            mini_publication = pd.to_numeric(row.get('Mini Publication FL', 0), errors='coerce') or 0
-            coche_rao = pd.to_numeric(row.get('COCHE_RAO', 0), errors='coerce') or 0
-            ral = pd.to_numeric(row.get('RAL', 0), errors='coerce') or 0
-            stock_reel = pd.to_numeric(row.get('STOCK_REEL', 0), errors='coerce') or 0
-            sm_final = pd.to_numeric(row.get('SM Final', 0), errors='coerce') or 0
-            prev_c1_l2 = pd.to_numeric(row.get('Prév C1-L2 Finale', 0), errors='coerce') or 0
-            prev_l1_l2 = pd.to_numeric(row.get('Prév L1-L2 Finale', 0), errors='coerce') or 0
-            facteur_appro_bu = pd.to_numeric(row.get('Facteur Multiplicatif Appro', 1), errors='coerce') or 1
-            casse_c1_l2_ay = pd.to_numeric(row.get('Casse Prev C1-L2', 0), errors='coerce') or 0
-            casse_l1_l2_az = pd.to_numeric(row.get('Casse Prev L1-L2', 0), errors='coerce') or 0
-            produit_bloque_bi = row.get('Produit Bloqué', False); 
-            if isinstance(produit_bloque_bi, str): produit_bloque_bi = produit_bloque_bi.lower() in ['true', 'oui', 'yes', '1']
-            cmd_max_cc = pd.to_numeric(row.get('Commande Max avec stock max', 99999999), errors='coerce') or 99999999
+            # Extract values from row with proper NaN handling
+            mini_publication = pd.to_numeric(row.get('Mini Publication FL', 0), errors='coerce')
+            if pd.isna(mini_publication): mini_publication = 0
+            
+            coche_rao = pd.to_numeric(row.get('COCHE_RAO', 0), errors='coerce')
+            if pd.isna(coche_rao): coche_rao = 0
+            
+            ral = pd.to_numeric(row.get('RAL', 0), errors='coerce')
+            if pd.isna(ral): ral = 0
+            
+            stock_reel = pd.to_numeric(row.get('STOCK_REEL', 0), errors='coerce')
+            if pd.isna(stock_reel): stock_reel = 0
+            
+            sm_final = pd.to_numeric(row.get('SM Final', 0), errors='coerce')
+            if pd.isna(sm_final): sm_final = 0
+            
+            prev_c1_l2 = pd.to_numeric(row.get('Prév C1-L2 Finale', 0), errors='coerce')
+            if pd.isna(prev_c1_l2): prev_c1_l2 = 0
+            
+            prev_l1_l2 = pd.to_numeric(row.get('Prév L1-L2 Finale', 0), errors='coerce')
+            if pd.isna(prev_l1_l2): prev_l1_l2 = 0
+            
+            facteur_appro_bu = pd.to_numeric(row.get('Facteur Multiplicatif Appro', 1), errors='coerce')
+            if pd.isna(facteur_appro_bu): facteur_appro_bu = 1
+            
+            casse_c1_l2_ay = pd.to_numeric(row.get('Casse Prev C1-L2', 0), errors='coerce')
+            if pd.isna(casse_c1_l2_ay): casse_c1_l2_ay = 0
+            
+            casse_l1_l2_az = pd.to_numeric(row.get('Casse Prev L1-L2', 0), errors='coerce')
+            if pd.isna(casse_l1_l2_az): casse_l1_l2_az = 0
+            
+            produit_bloque_bi = row.get('Produit Bloqué', False)
+            if isinstance(produit_bloque_bi, str): 
+                produit_bloque_bi = produit_bloque_bi.lower() in ['true', 'oui', 'yes', '1']
+                
+            cmd_max_cc = pd.to_numeric(row.get('Commande Max avec stock max', 99999999), errors='coerce')
+            if pd.isna(cmd_max_cc): cmd_max_cc = 99999999
+            
+            # Check if Position JUD is error (ISERROR in Excel)
             position_jud_is_error = True
             if has_position_jud:
                 position_jud_p = pd.to_numeric(row.get('Position JUD', None), errors='coerce')
-                position_jud_is_error = pd.isna(position_jud_p) or position_jud_p <= 0
-            if mini_publication <= 0 or coche_rao == 46: besoin_net = 0
-            else: besoin_net = mini_publication - stock_reel - ral
-            quantite_stock_max_scenarios = 0
-            if produit_bloque_bi: quantite_stock_max_scenarios = 0
+                position_jud_is_error = pd.isna(position_jud_p)
+            
+            # Calculate besoin_net (first part of MAX)
+            # SI(OU(AK2<=0;AD2=46);0;AK2-SI(AJ2="";0;AJ2)-SI(Z2="";0;Z2))
+            if mini_publication <= 0 or coche_rao == 46:
+                besoin_net = 0
             else:
-                scenario1 = 0
-                if not position_jud_is_error:
-                    ajustement1 = (-stock_reel - ral); 
-                    if casse_prev_active == "Oui": ajustement1 = (-(stock_reel - casse_c1_l2_ay) - ral)
+                # Handle empty values like Excel (treat empty as 0)
+                stock_to_subtract = stock_reel  # Already handled NaN above
+                ral_to_subtract = ral  # Already handled NaN above
+                besoin_net = mini_publication - stock_to_subtract - ral_to_subtract
+            
+            # Calculate stock_max_scenarios (second part of MAX)
+            if produit_bloque_bi:
+                quantite_stock_max_scenarios = 0
+            else:
+                # Scenario 1: SI(ESTERREUR($P2);0;MAX(0;(O2+BF2)*BU2+SI('Macro-Param'!$C$16="Oui";-(AJ2-AY2)-Z2;-AJ2-Z2)))
+                if position_jud_is_error:
+                    scenario1 = 0
+                else:
+                    if casse_prev_active == "Oui":
+                        ajustement1 = -(stock_reel - casse_c1_l2_ay) - ral
+                    else:
+                        ajustement1 = -stock_reel - ral
                     scenario1 = max(0, (sm_final + prev_c1_l2) * facteur_appro_bu + ajustement1)
-                scenario2 = 0
-                if not position_jud_is_error:
-                    ajustement2 = 0; 
-                    if casse_prev_active == "Oui": ajustement2 = casse_l1_l2_az
+                
+                # Scenario 2: SI(ESTERREUR($P2);0;MAX(0;(O2+BG2)*BU2+SI('Macro-Param'!$C$16="Oui";AZ2;0)))
+                if position_jud_is_error:
+                    scenario2 = 0
+                else:
+                    if casse_prev_active == "Oui":
+                        ajustement2 = casse_l1_l2_az
+                    else:
+                        ajustement2 = 0
                     scenario2 = max(0, (sm_final + prev_l1_l2) * facteur_appro_bu + ajustement2)
+                
+                # MIN of both scenarios
                 quantite_stock_max_scenarios = min(scenario1, scenario2)
+            
+            # MIN(CC2, quantite_stock_max_scenarios)
             valeur_avant_max_besoin_net = min(cmd_max_cc, quantite_stock_max_scenarios)
+            
+            # Final MAX(besoin_net, valeur_avant_max_besoin_net)
             resultat_bo = max(besoin_net, valeur_avant_max_besoin_net)
             return max(0, resultat_bo)
-        except Exception: return 0
+        except Exception as e:
+            print(f"Exception in calculate_bo_row: {e}")
+            return 0
     df['Commande Finale sans mini ni arrondi SM à 100%'] = df.apply(calculate_bo_row, axis=1)
     # print("  Colonne 'Commande Finale sans mini ni arrondi SM à 100%' (BO) calculée.")
     return df

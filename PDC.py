@@ -1,68 +1,218 @@
 import pandas as pd
 import os
+import glob
 import MacroParam # Assuming MacroParam.py is in the same directory 'Outil_de_lissage'
 from datetime import datetime # timedelta might not be needed if direct comparison works
 import numpy as np # Added for np.number
 
-# Définition du chemin vers le fichier PDC.xlsx
-# Assurez-vous que ce chemin est correct et que le fichier existe à cet emplacement.
-# __file__ est le chemin du script PDC.py
-# os.path.dirname(__file__) est le répertoire contenant PDC.py (Outil_de_lissage)
-# os.path.join(os.path.dirname(__file__), 'PDC', 'PDC.xlsx') construit le chemin complet
-PDC_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'PDC', 'PDC.xlsx')
+def find_sqf_file():
+    """
+    Use glob to find SQF Outil Lissage Approvisionnements files in the current directory and parent directories.
+    Returns the path to the most recent file found.
+    """
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Define search patterns
+    patterns = [
+        "SQF Outil Lissage Approvisionnements*.xlsm",
+        "SQF Outil Lissage Approvisionnements*.xlsx"
+    ]
+    
+    # Search in multiple directories
+    search_dirs = [
+        script_dir,  # Current script directory
+        os.path.dirname(script_dir),  # Parent directory
+        os.path.join(script_dir, ".."),  # Parent directory (alternative)
+        os.path.join(script_dir, "data"),  # Data subdirectory
+        os.path.join(script_dir, "files"),  # Files subdirectory
+    ]
+    
+    found_files = []
+    
+    for search_dir in search_dirs:
+        if os.path.exists(search_dir):
+            for pattern in patterns:
+                search_pattern = os.path.join(search_dir, pattern)
+                files = glob.glob(search_pattern)
+                found_files.extend(files)
+    
+    if not found_files:
+        print("Aucun fichier SQF Outil Lissage Approvisionnements trouvé.")
+        print(f"Répertoires recherchés: {search_dirs}")
+        print(f"Motifs recherchés: {patterns}")
+        return None
+    
+    # Sort by modification time and return the most recent
+    found_files.sort(key=os.path.getmtime, reverse=True)
+    selected_file = found_files[0]
+    
+    print(f"Fichier SQF trouvé: {selected_file}")
+    if len(found_files) > 1:
+        print(f"Autres fichiers trouvés: {found_files[1:]}")
+    
+    return selected_file
+
+def detect_sheet_with_data(file_path, required_columns):
+    """
+    Detect which sheet contains the required columns.
+    Returns the sheet name that contains all required columns.
+    """
+    try:
+        # Get all sheet names
+        excel_file = pd.ExcelFile(file_path)
+        sheet_names = excel_file.sheet_names
+        
+        print(f"Feuilles disponibles dans le fichier: {sheet_names}")
+        
+        for sheet_name in sheet_names:
+            try:
+                # Read just the header to check columns
+                df_header = pd.read_excel(file_path, sheet_name=sheet_name, nrows=0)
+                available_columns = df_header.columns.tolist()
+                
+                # Check if all required columns are present
+                missing_columns = [col for col in required_columns if col not in available_columns]
+                
+                if not missing_columns:
+                    print(f"Feuille '{sheet_name}' contient toutes les colonnes requises.")
+                    return sheet_name
+                else:
+                    print(f"Feuille '{sheet_name}' - Colonnes manquantes: {missing_columns}")
+                    
+            except Exception as e:
+                print(f"Erreur lors de la lecture de la feuille '{sheet_name}': {e}")
+                continue
+        
+        # If no sheet has all columns, try to find the best match
+        best_match = None
+        best_score = 0
+        
+        for sheet_name in sheet_names:
+            try:
+                df_header = pd.read_excel(file_path, sheet_name=sheet_name, nrows=0)
+                available_columns = df_header.columns.tolist()
+                
+                # Count how many required columns are present
+                score = sum(1 for col in required_columns if col in available_columns)
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = sheet_name
+                    
+            except Exception:
+                continue
+        
+        if best_match and best_score > 0:
+            print(f"Meilleure correspondance: feuille '{best_match}' avec {best_score}/{len(required_columns)} colonnes.")
+            return best_match
+        
+        return None
+        
+    except Exception as e:
+        print(f"Erreur lors de la détection de la feuille: {e}")
+        return None
 
 def load_pdc_perm_data():
     """
-    Charge les données depuis la feuille 'PDC' du fichier PDC.xlsx.
-    Assure que la colonne 'Jour' est correctement formatée en datetime.
+    Charge les données depuis le fichier SQF Outil Lissage Approvisionnements détecté automatiquement.
+    Extrait les colonnes: Jour, Sec Hétérogène, Sec Homogène, Sec Méca, Surgelés, Frais Méca, Frais Manuel, Total
     """
+    # Required columns to extract
+    required_columns = ['Jour', 'Sec Hétérogène', 'Sec Homogène', 'Sec Méca', 'Surgelés', 'Frais Méca', 'Frais Manuel', 'Total']
+    
+    # Find the SQF file
+    file_path = find_sqf_file()
+    if not file_path:
+        print("Aucun fichier SQF trouvé. Impossible de charger les données.")
+        return pd.DataFrame()
+    
     try:
-        # User confirmed sheet_name='PDC' for the Excel file.
-        df = pd.read_excel(PDC_FILE_PATH, sheet_name='PDC')
+        # Detect which sheet contains the required data
+        sheet_name = detect_sheet_with_data(file_path, required_columns)
         
-        if 'Jour' not in df.columns:
-            print("Erreur: La colonne 'Jour' est introuvable dans la feuille 'PDC'. Le chargement a échoué.")
+        if not sheet_name:
+            print("Aucune feuille contenant les colonnes requises n'a été trouvée.")
             return pd.DataFrame()
         
-        # Convertir la colonne 'Jour' en datetime
-        df['Jour'] = pd.to_datetime(df['Jour'], errors='coerce')
-        # Supprimer les lignes où 'Jour' n'a pas pu être converti en date valide
-        df.dropna(subset=['Jour'], inplace=True)
-
-        if df.empty:
+        # Load the data from the detected sheet
+        print(f"Chargement des données depuis la feuille '{sheet_name}'...")
+        df = pd.read_excel(file_path, sheet_name=sheet_name)
+        
+        print(f"Colonnes disponibles: {df.columns.tolist()}")
+        
+        # Check which required columns are actually present
+        available_required_cols = [col for col in required_columns if col in df.columns]
+        missing_cols = [col for col in required_columns if col not in df.columns]
+        
+        if missing_cols:
+            print(f"Colonnes manquantes: {missing_cols}")
+        
+        if 'Jour' not in available_required_cols:
+            print("Erreur: La colonne 'Jour' est introuvable. Le chargement a échoué.")
+            return pd.DataFrame()
+        
+        # Select only the available required columns
+        df_selected = df[available_required_cols].copy()
+        
+        # Convert 'Jour' column to datetime
+        df_selected['Jour'] = pd.to_datetime(df_selected['Jour'], errors='coerce')
+        
+        # Remove rows where 'Jour' couldn't be converted to a valid date
+        initial_rows = len(df_selected)
+        df_selected.dropna(subset=['Jour'], inplace=True)
+        final_rows = len(df_selected)
+        
+        if initial_rows != final_rows:
+            print(f"Suppression de {initial_rows - final_rows} lignes avec des dates invalides.")
+        
+        if df_selected.empty:
             print("Avertissement: Aucune donnée valide après conversion de la colonne 'Jour' et suppression des NaNs.")
             return pd.DataFrame()
-            
-        print(f"Données chargées avec succès depuis la feuille 'PDC' de {PDC_FILE_PATH}")
-        return df
+        
+        # Fill missing values in numeric columns with 0
+        numeric_columns = [col for col in available_required_cols if col != 'Jour']
+        for col in numeric_columns:
+            df_selected[col] = pd.to_numeric(df_selected[col], errors='coerce').fillna(0.0)
+        
+        # If 'Total' column is missing, calculate it
+        if 'Total' not in df_selected.columns:
+            product_columns = [col for col in ['Sec Hétérogène', 'Sec Homogène', 'Sec Méca', 'Surgelés', 'Frais Méca', 'Frais Manuel'] if col in df_selected.columns]
+            if product_columns:
+                df_selected['Total'] = df_selected[product_columns].sum(axis=1)
+                print("Colonne 'Total' calculée automatiquement.")
+        
+        print(f"Données chargées avec succès depuis {os.path.basename(file_path)}, feuille '{sheet_name}'")
+        print(f"Nombre de lignes: {len(df_selected)}")
+        print(f"Colonnes chargées: {df_selected.columns.tolist()}")
+        print(f"Période des données: du {df_selected['Jour'].min()} au {df_selected['Jour'].max()}")
+        
+        return df_selected
+        
     except FileNotFoundError:
-        print(f"Erreur: Le fichier {PDC_FILE_PATH} n'a pas été trouvé.")
+        print(f"Erreur: Le fichier {file_path} n'a pas été trouvé.")
         return pd.DataFrame()
     except Exception as e:
-        print(f"Erreur lors du chargement des données depuis {PDC_FILE_PATH}, feuille 'PDC': {e}")
+        print(f"Erreur lors du chargement des données depuis {file_path}: {e}")
         return pd.DataFrame()
+
+# Keep the old PDC_FILE_PATH for backward compatibility, but make it dynamic
+def get_pdc_file_path():
+    """Get the PDC file path dynamically."""
+    sqf_file = find_sqf_file()
+    if sqf_file:
+        return sqf_file
+    else:
+        # Fallback to old path
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'PDC', 'PDC.xlsx')
+
+# Update the global variable to be dynamic
+PDC_FILE_PATH = get_pdc_file_path()
 
 def create_pdc_perm_summary(df_pdc_perm_input):
     """
     Crée un résumé basé sur les données de la feuille 'PDC Perm' (chargées comme df_pdc_perm_input)
     et la formule Excel fournie. Le résumé commence à partir de DATE_COMMANDE.
-    Formule Excel (conceptuellement, AUJOURDHUI() est remplacé par DATE_COMMANDE):
-    =SI(L12="";"";
-        SI(L$12="Total";SOMME(DECALER($K13;;1;;COLONNE(L12)-COLONNE($K13)-1));
-            SIERREUR(INDEX('PDC Perm'!$A:$S;EQUIV($K13;'PDC Perm'!$A:$A;0);EQUIV(L$12;'PDC Perm'!$1:$1;0));0) /
-            (1000*'Macro-Param'!$C$5)
-        ) *
-        SIERREUR(SI($K13>=DATE_COMMANDE+2+SI('Macro-Param'!$C$10="J-1";1;0);
-                    INDEX('Macro-Param'!$L:$L;EQUIV(L$12;'Macro-Param'!$F:$F;0));1);1)
-    )
-    $K13: Date (index of the summary table)
-    L$12: Product Type or "Total" (column header of the summary table)
-    'PDC Perm'!$A:$A : Date column in 'PDC Perm' sheet (here, 'Jour' column)
-    'PDC Perm'!$1:$1 : Header row in 'PDC Perm' sheet (product type column names)
-    'Macro-Param'!$C$5: taux_service_amont_estime
-    'Macro-Param'!$C$10: jour_passage_commande
-    'Macro-Param'!$L:$L: An empty column, leading to the multiplier part evaluating to 1.
-    DATE_COMMANDE: Date de début pour le traitement, tirée de MacroParam.DATE_COMMANDE.
     """
     if df_pdc_perm_input.empty:
         print("Les données PDC Perm en entrée sont vides. Impossible de créer le résumé.")
@@ -76,7 +226,6 @@ def create_pdc_perm_summary(df_pdc_perm_input):
         return pd.DataFrame()
     
     # Définir 'Jour' comme index pour faciliter les recherches
-    # Assurez-vous que la colonne 'Jour' est déjà au format datetime grâce à load_pdc_perm_data
     df_pdc_perm = df_pdc_perm.set_index('Jour')
     # S'assurer que l'index (dates) est unique, en gardant la première occurrence en cas de doublons
     df_pdc_perm = df_pdc_perm[~df_pdc_perm.index.duplicated(keep='first')]
@@ -90,7 +239,7 @@ def create_pdc_perm_summary(df_pdc_perm_input):
         return pd.DataFrame()
 
     # Filtrer les données pour commencer à partir de DATE_COMMANDE (inclus)
-    df_pdc_perm_filtered = df_pdc_perm[df_pdc_perm.index >= date_commande_dt].copy() # Utiliser .copy() pour éviter SettingWithCopyWarning
+    df_pdc_perm_filtered = df_pdc_perm[df_pdc_perm.index >= date_commande_dt].copy()
 
     if df_pdc_perm_filtered.empty:
         print(f"Aucune donnée PDC Perm trouvée à partir de DATE_COMMANDE ({date_commande_str}). Le résumé sera vide.")
@@ -98,17 +247,12 @@ def create_pdc_perm_summary(df_pdc_perm_input):
 
     # Charger les paramètres depuis le module MacroParam
     taux_service_amont_estime = MacroParam.get_param_value("taux_service_amont_estime", 0.92) 
-    # jour_passage_commande = MacroParam.get_param_value("jour_passage_commande", "J") # Non utilisé car le multiplicateur est 1
-    
-    # Le multiplicateur complexe de la formule Excel se simplifie à 1.0 car 'Macro-Param'!$L:$L est vide.
-    # La condition $K13>=DATE_COMMANDE+2+SI(...) faisait partie de ce multiplicateur.
-    # Puisque le multiplicateur est 1, cette condition n'affecte plus directement le calcul principal ici.
     multiplier = 1.0
 
-    # Définir les colonnes produit pour le tableau résumé, basées sur la structure Excel observée.
+    # Définir les colonnes produit pour le tableau résumé
     summary_product_columns = ['Sec Hétérogène', 'Sec Homogène', 'Sec Méca', 'Surgelés', 'Frais Méca', 'Frais Manuel']
     
-    # Filtrer pour utiliser uniquement les colonnes produit qui existent réellement dans df_pdc_perm_filtered chargé
+    # Filtrer pour utiliser uniquement les colonnes produit qui existent réellement dans df_pdc_perm_filtered
     valid_product_columns = [col for col in summary_product_columns if col in df_pdc_perm_filtered.columns]
     
     if not valid_product_columns:
@@ -122,11 +266,10 @@ def create_pdc_perm_summary(df_pdc_perm_input):
         print(f"Avertissement: Certaines colonnes produit définies ({missing_cols}) sont absentes des données PDC Perm filtrées. Le résumé utilisera: {valid_product_columns}")
 
     output_columns = valid_product_columns + ['Total']
-    # L'index du summary_table est maintenant basé sur les dates filtrées
     summary_table = pd.DataFrame(index=df_pdc_perm_filtered.index, columns=output_columns, dtype=float)
 
-    for date_k in summary_table.index: # date_k correspond à $K13 (maintenant filtré par DATE_COMMANDE)
-        for col_l in output_columns: # col_l correspond à L$12
+    for date_k in summary_table.index:
+        for col_l in output_columns:
             if col_l == "Total":
                 summary_table.loc[date_k, "Total"] = summary_table.loc[date_k, valid_product_columns].sum()
             else:
@@ -140,7 +283,7 @@ def create_pdc_perm_summary(df_pdc_perm_input):
                     if taux_service_amont_estime == 0:
                          print(f"Avertissement: taux_service_amont_estime est zéro pour la date {date_k}, colonne {col_l}. Résultat mis à 0.")
 
-                summary_table.loc[date_k, col_l] = calculated_value * multiplier # multiplier est 1.0
+                summary_table.loc[date_k, col_l] = calculated_value * multiplier
     
     return summary_table
 
@@ -155,7 +298,6 @@ def format_pdc_perm_summary(df_summary):
         return df_summary
     
     # Arrondir toutes les colonnes numériques à 2 décimales
-    # S'assure que seules les colonnes numériques sont arrondies pour éviter les erreurs sur les colonnes non numériques (si elles existaient)
     numeric_cols = df_summary.select_dtypes(include=np.number).columns
     df_summary[numeric_cols] = df_summary[numeric_cols].round(2)
     
@@ -179,7 +321,7 @@ def get_processed_pdc_perm_data():
         print("Le chargement des données PDC Perm a échoué ou résulté en un DataFrame vide.")
         return pd.DataFrame()
     
-def create_pdc_perm_summary_BRUT(df_pdc_perm_input): # Nouvelle fonction ou version modifiée
+def create_pdc_perm_summary_BRUT(df_pdc_perm_input):
     """
     Crée un résumé des données PDC Perm BRUTES (sans division par 1000*TSA).
     L'index est la date, les colonnes sont les types de produits.
@@ -213,7 +355,7 @@ def create_pdc_perm_summary_BRUT(df_pdc_perm_input): # Nouvelle fonction ou vers
     # Sélectionner uniquement les colonnes produits valides et l'index
     df_summary_brut = df_pdc_perm_filtered[valid_product_columns].copy()
     
-    # Calculer le total si nécessaire (optionnel pour cette version brute)
+    # Calculer le total si nécessaire
     df_summary_brut['Total'] = df_summary_brut[valid_product_columns].sum(axis=1)
     
     # S'assurer que les types sont numériques, remplacer NaN par 0 pour la somme
@@ -221,19 +363,17 @@ def create_pdc_perm_summary_BRUT(df_pdc_perm_input): # Nouvelle fonction ou vers
         df_summary_brut[col] = pd.to_numeric(df_summary_brut[col], errors='coerce').fillna(0.0)
     df_summary_brut['Total'] = pd.to_numeric(df_summary_brut['Total'], errors='coerce').fillna(0.0)
 
-    return df_summary_brut.round(2) # Arrondir à la fin
+    return df_summary_brut.round(2)
 
-def get_RAW_pdc_perm_data_for_optim(): # Nouvelle fonction à appeler depuis ParametresApprosGenerator
+def get_RAW_pdc_perm_data_for_optim():
     """
     Fonction principale pour obtenir les données PDC Perm BRUTES, formatées pour l'optimisation.
     """
     print("PDC.py - get_RAW_pdc_perm_data_for_optim: Chargement des données brutes...")
-    df_pdc = load_pdc_perm_data() # Charge les données avec les grandes valeurs
+    df_pdc = load_pdc_perm_data()
     if not df_pdc.empty:
-        # On utilise create_pdc_perm_summary_BRUT qui ne fait PAS la division
         df_summary_brut = create_pdc_perm_summary_BRUT(df_pdc) 
         if not df_summary_brut.empty:
-            # Pas besoin de format_pdc_perm_summary si create_pdc_perm_summary_BRUT fait déjà l'arrondi
             return df_summary_brut
         else:
             print("PDC.py - get_RAW_pdc_perm_data_for_optim: La création du résumé BRUT a résulté en un DataFrame vide.")
@@ -243,18 +383,25 @@ def get_RAW_pdc_perm_data_for_optim(): # Nouvelle fonction à appeler depuis Par
         return pd.DataFrame()
 
 if __name__ == '__main__':
-    # Ceci est un exemple de la façon dont vous pourriez utiliser ce module
-    print(f"Chargement du fichier PDC Perm depuis: {PDC_FILE_PATH}")
-    processed_data = get_processed_pdc_perm_data()
+    # Test the updated functionality
+    print("=== Test de détection automatique de fichier SQF ===")
+    print(f"Fichier PDC détecté: {PDC_FILE_PATH}")
     
+    print("\n=== Test de chargement des données ===")
+    processed_data = get_processed_pdc_perm_data()
     
     if not processed_data.empty:
         print("\nDonnées PDC Perm traitées et formatées:")
-        # Afficher l'index (dates) et les colonnes
         print(processed_data.head().to_string())
+        print(f"\nShape: {processed_data.shape}")
     else:
         print("\nAucune donnée PDC Perm n'a été traitée ou le résultat est vide.")
 
-    
-    df=load_pdc_perm_data()
-    print(df.head())
+    print("\n=== Test de chargement des données brutes ===")
+    df_raw = load_pdc_perm_data()
+    if not df_raw.empty:
+        print("Données brutes chargées:")
+        print(df_raw.head().to_string())
+        print(f"Shape: {df_raw.shape}")
+    else:
+        print("Aucune donnée brute chargée.")

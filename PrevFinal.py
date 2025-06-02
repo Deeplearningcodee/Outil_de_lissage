@@ -61,14 +61,13 @@ def calculate_prev_finales(df): # Renommée pour calculer les deux
                                   # AO2: 'Prev C1-L2' (devient 'Prev C1-L2')
                                   # AT2: 'Prev Promo C1-L2'
         'CODE_METI'
-    ]
-    # AJOUT: Vérifier si 'Prev C1-L2' existe, sinon utiliser 'Prev C1-L2'
-    prev_c1_l2_col_name = 'Prev C1-L2'
+    ]    # AJOUT: Vérifier si 'Prev C1-L2' existe, sinon utiliser 'Prev C1-L2'
+    prev_c1_l2_col_name = 'Prev C1-L2'  # Try the correct column name first
     if prev_c1_l2_col_name not in df.columns:
         print(f"    PrevFinal: Colonne '{prev_c1_l2_col_name}' non trouvée, tentative avec 'Prev C1-L2'.")
-        prev_c1_l2_col_name = 'Prev C1-L2'
+        prev_c1_l2_col_name = 'Prev C1-L2'  # Fallback to old name
         if prev_c1_l2_col_name not in df.columns:
-             print(f"    PrevFinal: ERREUR - Ni '{prev_c1_l2_col_name}' ni 'Prev C1-L2' trouvées pour BF.")
+             print(f"    PrevFinal: ERREUR - Ni 'Prev C1-L2' ni 'Prev C1-L2' trouvées pour BF.")
              df['Prév C1-L2 Finale'] = 0 # ou np.nan
     if prev_c1_l2_col_name not in required_cols_bf : required_cols_bf.append(prev_c1_l2_col_name)
 
@@ -79,9 +78,14 @@ def calculate_prev_finales(df): # Renommée pour calculer les deux
             df[col] = 0
     
     def calculate_bf_row(row):
-        encours_bd = pd.to_numeric(row.get('En-cours client C1-L2',0), errors='coerce') or 0
-        prev_ao = pd.to_numeric(row.get(prev_c1_l2_col_name,0), errors='coerce') or 0
-        prev_promo_at = pd.to_numeric(row.get('Prev Promo C1-L2',0), errors='coerce') or 0
+        encours_bd = pd.to_numeric(row.get('En-cours client C1-L2',0), errors='coerce')
+        if pd.isna(encours_bd): encours_bd = 0
+        
+        prev_ao = pd.to_numeric(row.get(prev_c1_l2_col_name,0), errors='coerce')
+        if pd.isna(prev_ao): prev_ao = 0
+        
+        prev_promo_at = pd.to_numeric(row.get('Prev Promo C1-L2',0), errors='coerce')
+        if pd.isna(prev_promo_at): prev_promo_at = 0
         
         base_value = max(encours_bd, max(prev_ao, prev_promo_at))
         
@@ -143,17 +147,17 @@ def calculate_prev_finales(df): # Renommée pour calculer les deux
         # 'Prev L1-L2',             # AP2 - ANCIEN NOM
         'Prev Promo L1-L2',       # AU2
         'Casse Prev L1-L2',       # AZ2 (Similaire à AY2 pour BF, non directement dans le MAX(AP,AU) de la formule)
-        'CODE_METI'
-    ]
+        'CODE_METI'    ]    
     # AJOUT: Vérifier si 'Prev L1-L2' existe, sinon utiliser 'Prev L1-L2'
-    prev_l1_l2_col_name = 'Prev L1-L2'
+    prev_l1_l2_col_name = 'Prev L1-L2'  # Try the correct column name first
     if prev_l1_l2_col_name not in df.columns:
         print(f"    PrevFinal: Colonne '{prev_l1_l2_col_name}' non trouvée, tentative avec 'Prev L1-L2'.")
-        prev_l1_l2_col_name = 'Prev L1-L2'
+        prev_l1_l2_col_name = 'Prev L1-L2'  # Fallback to old name
         if prev_l1_l2_col_name not in df.columns:
-            print(f"    PrevFinal: ERREUR - Ni '{prev_l1_l2_col_name}' ni 'Prev L1-L2' trouvées pour BG.")
+            print(f"    PrevFinal: ERREUR - Ni 'Prev L1-L2' ni 'Prev L1-L2' trouvées pour BG.")
             df['Prév L1-L2 Finale'] = 0 # ou np.nan
-    if prev_l1_l2_col_name not in required_cols_bg : required_cols_bg.append(prev_l1_l2_col_name)
+    if prev_l1_l2_col_name not in required_cols_bg : 
+        required_cols_bg.append(prev_l1_l2_col_name)
 
     for col in required_cols_bg:
         if col not in df.columns:
@@ -161,9 +165,14 @@ def calculate_prev_finales(df): # Renommée pour calculer les deux
             df[col] = 0
 
     def calculate_bg_row(row):
-        encours_be = pd.to_numeric(row.get('En-cours client L1-L2',0), errors='coerce') or 0
-        prev_ap = pd.to_numeric(row.get(prev_l1_l2_col_name,0), errors='coerce') or 0 # Utilise le nom de colonne déterminé
-        prev_promo_au = pd.to_numeric(row.get('Prev Promo L1-L2',0), errors='coerce') or 0
+        encours_be = pd.to_numeric(row.get('En-cours client L1-L2',0), errors='coerce')
+        if pd.isna(encours_be): encours_be = 0
+        
+        prev_ap = pd.to_numeric(row.get(prev_l1_l2_col_name,0), errors='coerce')
+        if pd.isna(prev_ap): prev_ap = 0
+        
+        prev_promo_au = pd.to_numeric(row.get('Prev Promo L1-L2',0), errors='coerce')
+        if pd.isna(prev_promo_au): prev_promo_au = 0
         
         base_value = max(encours_be, max(prev_ap, prev_promo_au))
         

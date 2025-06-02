@@ -200,13 +200,50 @@ Optimisation.generate_complete_pdc_sim_excel(
     df_detail_source_arg=merged_df # merged_df contient maintenant BQ et CF
 
 )
-# --- ICI A LIEU L'APPEL À optimisation_globale.py ---
-# (ou la logique équivalente) qui génère PDC_Sim_Optimized_Python.xlsx
-# Il est crucial que PDC_Sim.xlsx (l'input de optimisation_globale.py) contienne
-# la colonne 'Commande Finale avec mini et arrondi SM à 100%' (BP) car
-# la nouvelle formule de CD en dépend pour sa condition initiale.
-# Il doit aussi contenir les colonnes que optimisation_globale.py attend.
-os.system(f"python {os.path.join('optimisation_globale.py')}") 
+# --- VBA-STYLE OPTIMIZATION LOGIC ---
+# Replace optimisation_globale.py with VBA logic implementation
+print("Running VBA-style optimization logic...")
+
+# Import VBA logic
+import vba_logic_optimization
+
+# Load the PDC_Sim input data that was just generated
+df_pdc_sim_input = pd.read_excel('PDC_Sim_Input_For_Optim.xlsx')
+print(f"Loaded PDC_Sim input with {len(df_pdc_sim_input)} rows for optimization")
+
+# Load PDC and En-cours data for optimization
+import PDC as ModulePDC
+import Encours as ModuleEncours
+df_pdc_perm_for_optim = ModulePDC.get_RAW_pdc_perm_data_for_optim()
+df_encours_for_optim = ModuleEncours.get_processed_data(formatted=False)
+
+# Run VBA optimization
+df_pdc_sim_optimized = vba_logic_optimization.run_vba_optimization(
+    df_pdc_sim_input, merged_df, df_pdc_perm_for_optim
+)
+
+# Save optimized results to the expected filename
+print("Saving VBA optimization results to PDC_Sim_Optimized_Python.xlsx...")
+try:
+    with pd.ExcelWriter('PDC_Sim_Optimized_Python.xlsx', engine='openpyxl') as writer:
+        df_export_optim = df_pdc_sim_optimized.copy()
+        if 'Jour livraison' in df_export_optim.columns:
+            df_export_optim['Jour livraison'] = pd.to_datetime(df_export_optim['Jour livraison'], errors='coerce').dt.date
+        df_export_optim.to_excel(writer, sheet_name='PDC_Sim', index=False, header=True)
+        
+        # Format date column
+        worksheet = writer.sheets['PDC_Sim']
+        if 'Jour livraison' in df_export_optim.columns:
+            date_col_idx = df_export_optim.columns.get_loc("Jour livraison") + 1
+            for row_idx in range(2, worksheet.max_row + 1):
+                cell = worksheet.cell(row=row_idx, column=date_col_idx)
+                if hasattr(cell.value, 'strftime'):
+                    cell.number_format = 'DD/MM/YYYY'
+    print("VBA optimization results saved successfully!")
+except Exception as e:
+    print(f"Error saving optimization results: {e}")
+    import traceback
+    traceback.print_exc() 
 
 
 

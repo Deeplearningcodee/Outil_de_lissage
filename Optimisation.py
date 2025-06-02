@@ -507,6 +507,6 @@ if __name__ == "__main__":
     print(f"  Fichier '{os.path.basename(detail_source_path)}' chargé ({len(df_detail_real)} lignes).")
     
     # Appel de la fonction principale de ce module pour générer PDC_Sim.xlsx
-    generate_complete_pdc_sim_excel(df_detail_real, output_excel_path='PDC_Sim_TEST_GENERATED.xlsx')
+    generate_complete_pdc_sim_excel(df_detail_real, output_excel_path='PDC_Sim_Input_For_Optim.xlsx')
 
     print("\n--- Fin du test autonome ---")
