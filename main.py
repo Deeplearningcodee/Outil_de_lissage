@@ -204,22 +204,16 @@ Optimisation.generate_complete_pdc_sim_excel(
 # Replace optimisation_globale.py with VBA logic implementation
 print("Running VBA-style optimization logic...")
 
-# Import VBA logic
-import vba_logic_optimization
+# Import corrected VBA logic
+import vba_logic_fixed
 
 # Load the PDC_Sim input data that was just generated
 df_pdc_sim_input = pd.read_excel('PDC_Sim_Input_For_Optim.xlsx')
 print(f"Loaded PDC_Sim input with {len(df_pdc_sim_input)} rows for optimization")
 
-# Load PDC and En-cours data for optimization
-import PDC as ModulePDC
-import Encours as ModuleEncours
-df_pdc_perm_for_optim = ModulePDC.get_RAW_pdc_perm_data_for_optim()
-df_encours_for_optim = ModuleEncours.get_processed_data(formatted=False)
-
-# Run VBA optimization
-df_pdc_sim_optimized = vba_logic_optimization.run_vba_optimization(
-    df_pdc_sim_input, merged_df, df_pdc_perm_for_optim
+# Run corrected VBA optimization using the processed merged_df as detail data
+df_pdc_sim_optimized = vba_logic_fixed.run_vba_optimization_fixed(
+    df_pdc_sim_input, merged_df
 )
 
 # Save optimized results to the expected filename

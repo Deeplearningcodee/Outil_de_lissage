@@ -139,9 +139,9 @@ def update_facteur_lissage_besoin_brut_from_optim(merged_df): # merged_df est le
     try:
         df_optim = pd.read_excel(optim_results_file, engine='openpyxl')
         
-        col_opt_j = 'PY_Opt_J' 
-        col_opt_k = 'PY_Opt_K' 
-        col_opt_l = 'PY_Opt_L' 
+        col_opt_j = 'Top 500' 
+        col_opt_k = 'Top 3000' 
+        col_opt_l = 'Autre' 
         col_tpv2_optim_PDC = 'Type de produits V2' # Nom dans PDC_Sim_Optimized_Python.xlsx
         col_jour_optim_PDC = 'Jour livraison'      # Nom dans PDC_Sim_Optimized_Python.xlsx
         
