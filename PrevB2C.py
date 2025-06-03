@@ -63,7 +63,7 @@ def get_processed_data():
         mask = (
             (df_prev['CODE_METI'] == row['CODE_METI']) &
             (df_prev['Date'] >= row['DATE_COMMANDE']) &
-            (df_prev['Date'] <= row['Date_L1'])
+            (df_prev['Date'] < row['Date_L2'])
         )
         vals = df_prev.loc[mask, 'Prevision_B2C']
         return vals.sum().round(0) if not vals.empty else 0

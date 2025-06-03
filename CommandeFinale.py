@@ -177,11 +177,12 @@ def get_total_cf_optimisee_vectorized(df_detail_subset, j_factor, k_factor, l_fa
         
         df.loc[condition_ce_non_zero & condition_seuil1_ok, 'CE_sim'] = np.maximum(v_min_subset[condition_seuil1_ok], val_arrondie_subset[condition_seuil1_ok])
         df.loc[condition_ce_non_zero & ~condition_seuil1_ok, 'CE_sim'] = 0.0
-
-
     # --- 4. Calcul Vectoriel de CF ---
     bj_ts = pd.to_numeric(df.get('TS', 1), errors='coerce').fillna(1.0)
-    df['CF_sim'] = df['CE_sim'].fillna(0.0) * bj_ts
+    cf_raw = df['CE_sim'].fillna(0.0) * bj_ts
+    
+    # Apply rounding logic: if < 1, make it 0; if >= 1, round down to integer
+    df['CF_sim'] = np.where(cf_raw < 1, 0, np.floor(cf_raw))
 
     return df['CF_sim'].sum()
 
@@ -341,7 +342,14 @@ def _calculate_cf_commande_optimisee_avec_arrondi_mini_ts_row(detail_row_dict, c
     if pd.isna(ce_commande_optim_arrondi_mini): return 0
     bj_ts = pd.to_numeric(detail_row_dict.get('TS', 1), errors='coerce')
     if pd.isna(bj_ts): bj_ts = 1 
-    return ce_commande_optim_arrondi_mini * bj_ts
+    
+    result = ce_commande_optim_arrondi_mini * bj_ts
+    
+    # Apply rounding logic: if < 1, make it 0; if >= 1, round down to integer
+    if result < 1:
+        return 0
+    else:
+        return int(np.floor(result))
 
 # --- NOUVELLE FONCTION D'ORCHESTRATION LIGNE PAR LIGNE ---
 def get_cf_optimisee_for_detail_line(detail_row_as_dict, j_factor, k_factor, l_factor):
@@ -412,96 +420,108 @@ def calculate_cf_commande_optimisee_avec_arrondi_mini_ts(df): # CF via _row
 
 # Les fonctions pour BO, BP, BQ peuvent rester telles quelles car elles n'utilisent pas BY
 def calculate_commande_finale_sans_mini_ni_arrondi(df): # BO
-    # ... (votre code existant pour BO) ...
     print("Calcul de 'Commande Finale sans mini ni arrondi SM à 100%' (BO)...")
-    casse_prev_active = get_param_value('Casse Prev Activé', 'Oui')
-    required_columns_bo = ['Mini Publication FL', 'COCHE_RAO', 'RAL', 'STOCK_REEL','SM Final', 'Prév C1-L2 Finale', 'Prév L1-L2 Finale','Facteur Multiplicatif Appro','Casse Prev C1-L2', 'Casse Prev L1-L2','Produit Bloqué', 'Commande Max avec stock max']
-    missing_columns = [col for col in required_columns_bo if col not in df.columns]
-    if missing_columns:
-        print(f"  ERREUR: Colonnes manquantes pour BO: {missing_columns}, df colonnes: {df.columns.tolist()}")
-        for col_miss in missing_columns: df[col_miss] = 0 # Ajouter avec 0 si manque
-    has_position_jud = 'Position JUD' in df.columns    
+    
+    # Determine if 'Casse Prev Activé' from MacroParam once
+    casse_prev_active_str = get_param_value('Casse Prev Activé', 'Oui')
+    casse_prev_active = (casse_prev_active_str.lower() == "oui") if isinstance(casse_prev_active_str, str) else False
+
+    # Check for required columns and add them with default 0 if missing (helps prevent KeyErrors in .get)
+    required_columns_bo = [
+        'Mini Publication FL', 'COCHE_RAO', 'RAL', 'STOCK_REEL', 'SM Final', 
+        'Prév C1-L2 Finale', 'Prév L1-L2 Finale', 'Facteur Multiplicatif Appro',
+        'Casse Prev C1-L2', 'Casse Prev L1-L2', 'Produit Bloqué', 
+        'Commande Max avec stock max', 'Position JUD', 'CODE_METI' # CODE_METI for debugging
+    ]
+    for col_name in required_columns_bo:
+        if col_name not in df.columns:
+            print(f"  ATTENTION (BO): Colonne '{col_name}' manquante. Ajout avec valeur par défaut (0 ou False).")
+            if col_name == 'Produit Bloqué':
+                df[col_name] = False
+            else:
+                df[col_name] = 0
+    
+    has_position_jud_col = 'Position JUD' in df.columns
+
     def calculate_bo_row(row):
         try:
-            # Extract values from row with proper NaN handling
-            mini_publication = pd.to_numeric(row.get('Mini Publication FL', 0), errors='coerce')
-            if pd.isna(mini_publication): mini_publication = 0
+            # --- Extract and clean input values ---
+            mini_publication = pd.to_numeric(row.get('Mini Publication FL'), errors='coerce')
+            if pd.isna(mini_publication): mini_publication = 0.0
             
-            coche_rao = pd.to_numeric(row.get('COCHE_RAO', 0), errors='coerce')
-            if pd.isna(coche_rao): coche_rao = 0
+            coche_rao = pd.to_numeric(row.get('COCHE_RAO'), errors='coerce')
+            if pd.isna(coche_rao): coche_rao = 0.0
             
-            ral = pd.to_numeric(row.get('RAL', 0), errors='coerce')
-            if pd.isna(ral): ral = 0
+            ral = pd.to_numeric(row.get('RAL'), errors='coerce')
+            if pd.isna(ral): ral = 0.0
             
-            stock_reel = pd.to_numeric(row.get('STOCK_REEL', 0), errors='coerce')
-            if pd.isna(stock_reel): stock_reel = 0
+            stock_reel = pd.to_numeric(row.get('STOCK_REEL'), errors='coerce')
+            if pd.isna(stock_reel): stock_reel = 0.0
             
-            sm_final = pd.to_numeric(row.get('SM Final', 0), errors='coerce')
-            if pd.isna(sm_final): sm_final = 0
+            sm_final = pd.to_numeric(row.get('SM Final'), errors='coerce')
+            if pd.isna(sm_final): sm_final = 0.0
             
-            prev_c1_l2 = pd.to_numeric(row.get('Prév C1-L2 Finale', 0), errors='coerce')
-            if pd.isna(prev_c1_l2): prev_c1_l2 = 0
+            prev_c1_l2 = pd.to_numeric(row.get('Prév C1-L2 Finale'), errors='coerce')
+            if pd.isna(prev_c1_l2): prev_c1_l2 = 0.0
             
-            prev_l1_l2 = pd.to_numeric(row.get('Prév L1-L2 Finale', 0), errors='coerce')
-            if pd.isna(prev_l1_l2): prev_l1_l2 = 0
+            prev_l1_l2 = pd.to_numeric(row.get('Prév L1-L2 Finale'), errors='coerce')
+            if pd.isna(prev_l1_l2): prev_l1_l2 = 0.0
             
-            facteur_appro_bu = pd.to_numeric(row.get('Facteur Multiplicatif Appro', 1), errors='coerce')
-            if pd.isna(facteur_appro_bu): facteur_appro_bu = 1
+            facteur_appro_bu = pd.to_numeric(row.get('Facteur Multiplicatif Appro'), errors='coerce')
+            if pd.isna(facteur_appro_bu) or facteur_appro_bu == 0: facteur_appro_bu = 1.0 # Avoid 0 factor
             
-            casse_c1_l2_ay = pd.to_numeric(row.get('Casse Prev C1-L2', 0), errors='coerce')
-            if pd.isna(casse_c1_l2_ay): casse_c1_l2_ay = 0
+            casse_c1_l2_ay = pd.to_numeric(row.get('Casse Prev C1-L2'), errors='coerce')
+            if pd.isna(casse_c1_l2_ay): casse_c1_l2_ay = 0.0
             
-            casse_l1_l2_az = pd.to_numeric(row.get('Casse Prev L1-L2', 0), errors='coerce')
-            if pd.isna(casse_l1_l2_az): casse_l1_l2_az = 0
+            casse_l1_l2_az = pd.to_numeric(row.get('Casse Prev L1-L2'), errors='coerce')
+            if pd.isna(casse_l1_l2_az): casse_l1_l2_az = 0.0
             
-            produit_bloque_bi = row.get('Produit Bloqué', False)
-            if isinstance(produit_bloque_bi, str): 
-                produit_bloque_bi = produit_bloque_bi.lower() in ['true', 'oui', 'yes', '1']
-                
-            cmd_max_cc = pd.to_numeric(row.get('Commande Max avec stock max', 99999999), errors='coerce')
-            if pd.isna(cmd_max_cc): cmd_max_cc = 99999999
+            produit_bloque_bi_val = row.get('Produit Bloqué', False) # Default to False if column missing
+            if isinstance(produit_bloque_bi_val, str): 
+                produit_bloque_bi = produit_bloque_bi_val.lower() in ['true', 'oui', 'yes', '1', 'vrai']
+            elif isinstance(produit_bloque_bi_val, bool):
+                produit_bloque_bi = produit_bloque_bi_val
+            else: # try to convert to numeric then bool
+                produit_bloque_bi_num = pd.to_numeric(produit_bloque_bi_val, errors='coerce')
+                produit_bloque_bi = bool(produit_bloque_bi_num) if pd.notna(produit_bloque_bi_num) else False
+
+            cmd_max_cc = pd.to_numeric(row.get('Commande Max avec stock max'), errors='coerce')
+            if pd.isna(cmd_max_cc): cmd_max_cc = 99999999.0 # Default to a large number
             
-            # Check if Position JUD is error (ISERROR in Excel)
-            position_jud_is_error = True
-            if has_position_jud:
-                position_jud_p = pd.to_numeric(row.get('Position JUD', None), errors='coerce')
-                position_jud_is_error = pd.isna(position_jud_p)
+            position_jud_p_val = pd.to_numeric(row.get('Position JUD'), errors='coerce') # Defaulted to 0 if missing by pre-check
+            position_jud_is_error = pd.isna(position_jud_p_val)
+
+
+            # --- Start Calculation Logic ---
+            # If product is blocked, command is 0
+            if produit_bloque_bi:
+                return 0.0
             
-            # Calculate besoin_net (first part of MAX)
+            # Calculate besoin_net
             # SI(OU(AK2<=0;AD2=46);0;AK2-SI(AJ2="";0;AJ2)-SI(Z2="";0;Z2))
             if mini_publication <= 0 or coche_rao == 46:
-                besoin_net = 0
+                besoin_net = 0.0
             else:
-                # Handle empty values like Excel (treat empty as 0)
-                stock_to_subtract = stock_reel  # Already handled NaN above
-                ral_to_subtract = ral  # Already handled NaN above
-                besoin_net = mini_publication - stock_to_subtract - ral_to_subtract
+                besoin_net = mini_publication - stock_reel - ral
             
-            # Calculate stock_max_scenarios (second part of MAX)
-            if produit_bloque_bi:
-                quantite_stock_max_scenarios = 0
-            else:
-                # Scenario 1: SI(ESTERREUR($P2);0;MAX(0;(O2+BF2)*BU2+SI('Macro-Param'!$C$16="Oui";-(AJ2-AY2)-Z2;-AJ2-Z2)))
-                if position_jud_is_error:
-                    scenario1 = 0
+            # Calculate stock_max_scenarios
+            quantite_stock_max_scenarios = 0.0 # Default if JUD is error
+            
+            if not position_jud_is_error:
+                # Scenario 1: MAX(0,(O2+BF2)*BU2+SI('Macro-Param'!$C$16="Oui";-(AJ2-AY2)-Z2;-AJ2-Z2)))
+                if casse_prev_active:
+                    ajustement1 = -(stock_reel - casse_c1_l2_ay) - ral
                 else:
-                    if casse_prev_active == "Oui":
-                        ajustement1 = -(stock_reel - casse_c1_l2_ay) - ral
-                    else:
-                        ajustement1 = -stock_reel - ral
-                    scenario1 = max(0, (sm_final + prev_c1_l2) * facteur_appro_bu + ajustement1)
+                    ajustement1 = -stock_reel - ral
+                scenario1 = max(0.0, (sm_final + prev_c1_l2) * facteur_appro_bu + ajustement1)
                 
-                # Scenario 2: SI(ESTERREUR($P2);0;MAX(0;(O2+BG2)*BU2+SI('Macro-Param'!$C$16="Oui";AZ2;0)))
-                if position_jud_is_error:
-                    scenario2 = 0
+                # Scenario 2: MAX(0,(O2+BG2)*BU2+SI('Macro-Param'!$C$16="Oui";AZ2;0)))
+                if casse_prev_active:
+                    ajustement2 = casse_l1_l2_az
                 else:
-                    if casse_prev_active == "Oui":
-                        ajustement2 = casse_l1_l2_az
-                    else:
-                        ajustement2 = 0
-                    scenario2 = max(0, (sm_final + prev_l1_l2) * facteur_appro_bu + ajustement2)
+                    ajustement2 = 0.0
+                scenario2 = max(0.0, (sm_final + prev_l1_l2) * facteur_appro_bu + ajustement2)
                 
-                # MIN of both scenarios
                 quantite_stock_max_scenarios = min(scenario1, scenario2)
             
             # MIN(CC2, quantite_stock_max_scenarios)
@@ -509,13 +529,20 @@ def calculate_commande_finale_sans_mini_ni_arrondi(df): # BO
             
             # Final MAX(besoin_net, valeur_avant_max_besoin_net)
             resultat_bo = max(besoin_net, valeur_avant_max_besoin_net)
-            return max(0, resultat_bo)
+            
+            return max(0.0, resultat_bo) # Ensure final result is not negative
+
         except Exception as e:
-            print(f"Exception in calculate_bo_row: {e}")
-            return 0
+            code_meti_ex = row.get('CODE_METI', 'UNKNOWN_CODE_METI')
+            print(f"  ERREUR (BO) in calculate_bo_row for CODE_METI {code_meti_ex}: {e}")
+            import traceback
+            # traceback.print_exc() # Uncomment for full stack trace during debugging
+            return 0.0 # Default to 0 on any error
+
     df['Commande Finale sans mini ni arrondi SM à 100%'] = df.apply(calculate_bo_row, axis=1)
-    # print("  Colonne 'Commande Finale sans mini ni arrondi SM à 100%' (BO) calculée.")
+    print("  Colonne 'Commande Finale sans mini ni arrondi SM à 100%' (BO) calculée.")
     return df
+
 
 def calculate_commande_finale_avec_mini_et_arrondi(df): # BP
     # ... (votre code existant pour BP) ...
@@ -558,20 +585,26 @@ def calculate_commande_finale_avec_mini_et_arrondi(df): # BP
     return df
 
 def calculate_commande_finale_avec_mini_et_arrondi_avec_ts(df): # BQ
-    # ... (votre code existant pour BQ) ...
-    print("Calcul de 'Commande Finale avec mini et arrondi SM à 100% avec TS' (BQ)...")
+    # ... (votre code existant pour BQ) ...    print("Calcul de 'Commande Finale avec mini et arrondi SM à 100% avec TS' (BQ)...")
     required_columns_bq = ['Commande Finale avec mini et arrondi SM à 100%', 'TS']
     missing_columns = [col for col in required_columns_bq if col not in df.columns]
     if missing_columns:
         print(f"  ERREUR: Colonnes manquantes pour BQ: {missing_columns}")
         for col_miss in missing_columns: df[col_miss] = 0
+    
     def calculate_bq_row(row):
         try:
             bp_cmd_arrondi = pd.to_numeric(row['Commande Finale avec mini et arrondi SM à 100%'], errors='coerce'); 
             if pd.isna(bp_cmd_arrondi): bp_cmd_arrondi = 0
             ts_bj = pd.to_numeric(row['TS'], errors='coerce'); 
             if pd.isna(ts_bj): ts_bj = 1 
-            return bp_cmd_arrondi * ts_bj
+            result = bp_cmd_arrondi * ts_bj
+            
+            # Apply rounding logic: if < 1, make it 0; if >= 1, round down to integer
+            if result < 1:
+                return 0
+            else:
+                return int(np.floor(result))
         except Exception: return 0
     df['Commande Finale avec mini et arrondi SM à 100% avec TS'] = df.apply(calculate_bq_row, axis=1)
     # print("  Colonne 'Commande Finale avec mini et arrondi SM à 100% avec TS' (BQ) calculée.")
