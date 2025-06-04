@@ -3,11 +3,11 @@ import numpy as np
 import os
 from datetime import datetime, timedelta
 
-DATE_COMMANDE_STR = "28/05/2025" 
+DATE_COMMANDE_STR = "04/06/2025" 
 DATE_COMMANDE = pd.to_datetime(DATE_COMMANDE_STR, dayfirst=True)
 
-DATE_REF_JOUR_AB_STR = "30/05/2025" 
-DATE_REF_JOUR_AC_STR = "31/05/2025" 
+DATE_REF_JOUR_AB_STR = "05/06/2025" 
+DATE_REF_JOUR_AC_STR = "06/06/2025" 
 
 DATE_REF_JOUR_AB = pd.to_datetime(DATE_REF_JOUR_AB_STR, dayfirst=True)
 DATE_REF_JOUR_AC = pd.to_datetime(DATE_REF_JOUR_AC_STR, dayfirst=True)

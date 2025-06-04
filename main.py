@@ -213,7 +213,7 @@ print(f"Loaded PDC_Sim input with {len(df_pdc_sim_input)} rows for optimization"
 
 # Run corrected VBA optimization using the processed merged_df as detail data
 df_pdc_sim_optimized = vba_logic_fixed.run_vba_optimization_fixed(
-    df_pdc_sim_input, merged_df
+    df_pdc_sim_input, merged_df 
 )
 
 # Save optimized results to the expected filename
