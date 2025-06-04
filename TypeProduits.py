@@ -117,8 +117,8 @@ def calc_top(df):
 
     if os.path.exists(top500_file):
         try:
-            df_top500 = pd.read_csv(top500_file, sep=';', encoding='latin1', low_memory=False, dtype=str) 
-            df_top500.columns = df_top500.columns.str.strip()
+            df_top500 = pd.read_csv(top500_file, sep=';', encoding='utf-8-sig', low_memory=False, dtype=str)
+            df_top500.columns = df_top500.columns.str.strip().str.replace('\ufeff', '')
             print(f"    Fichier {os.path.basename(top500_file)} chargé ({len(df_top500)} lignes). Colonnes: {df_top500.columns.tolist()}")
             if ean_col_in_top_files not in df_top500.columns:
                 print(f"      ATTENTION: Colonne '{ean_col_in_top_files}' non trouvée dans {os.path.basename(top500_file)}")
@@ -131,8 +131,8 @@ def calc_top(df):
 
     if os.path.exists(top3000_file):
         try:
-            df_top3000 = pd.read_csv(top3000_file, sep=';', encoding='latin1', low_memory=False, dtype=str) 
-            df_top3000.columns = df_top3000.columns.str.strip()
+            df_top3000 = pd.read_csv(top3000_file, sep=';', encoding='utf-8-sig', low_memory=False, dtype=str)
+            df_top3000.columns = df_top3000.columns.str.strip().str.replace('\ufeff', '')
             print(f"    Fichier {os.path.basename(top3000_file)} chargé ({len(df_top3000)} lignes). Colonnes: {df_top3000.columns.tolist()}")
             if ean_col_in_top_files not in df_top3000.columns:
                 print(f"      ATTENTION: Colonne '{ean_col_in_top_files}' non trouvée dans {os.path.basename(top3000_file)}")
