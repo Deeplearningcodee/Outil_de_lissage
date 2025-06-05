@@ -21,6 +21,8 @@ import CommandeFinale
 import BorneMinMax
 import MacroParam
 import CalculAutresColonnes
+import Exclusion
+
 # Define reference date
 reference_date = MacroParam.DATE_COMMANDE
 # Calculate 3 weeks earlier
@@ -40,6 +42,10 @@ print("Loading stock merchant data...")
 
 import StockMarchand
 stock_marchand_df = StockMarchand.get_stock_marchand_data()
+
+# importer les Exclusions 
+
+exclusion_df = Exclusion.copy_exclusion_sheet()
 
 # Si le chargement du stock marchand a échoué, revenir à l'ancienne méthode
 # if stock_marchand_df is None or stock_marchand_df.empty:
