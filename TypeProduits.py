@@ -98,55 +98,78 @@ def calc_type_produits_v2(df):
     return df
 
 def calc_top(df):
-    """Calcule 'Top' (Top 500, Top 3000, Autre) en chargeant les fichiers CSV."""
+    """Calcule 'Top' (Top 500, Top 3000, Autre) en chargeant les données depuis le fichier Excel."""
     print("  TypeProduits - Calcul de 'Top'...")
     
     script_dir = os.path.dirname(__file__) 
-    csv_folder = os.path.join(script_dir, 'CSV')
-    if not os.path.exists(csv_folder):
-        print(f"    ATTENTION (calc_top): Dossier CSV non trouvé à {csv_folder}. Recherche dans le répertoire du script.")
-        csv_folder = script_dir 
-
-    top500_file = os.path.join(csv_folder, 'Top_500.csv') # Nom de fichier corrigé
-    top3000_file = os.path.join(csv_folder, 'Top_3000.csv') # Nom de fichier corrigé
-
+    
+    # Search for the Excel file using glob
+    excel_pattern = os.path.join(script_dir, "*Lissage Approvisionnements*.xlsm")
+    excel_files = glob.glob(excel_pattern)
+    
+    if not excel_files:
+        excel_pattern = os.path.join(script_dir, "SQF Outil Lissage Approvisionnements*.xlsm")
+        excel_files = glob.glob(excel_pattern)
+    
     df_top500, df_top3000 = pd.DataFrame(), pd.DataFrame()
-
     ean_col_in_top_files = 'EAN Final' 
-    codemeti_col_in_top_files = 'Code Méti' # CORRIGÉ - Assurez-vous que c'est bien l'en-tête exact
+    codemeti_col_in_top_files = 'Code Méti'
 
-    if os.path.exists(top500_file):
+    if excel_files:
+        excel_file = excel_files[0]  # Use the first matching file
+        print(f"    Lecture du fichier Excel: {os.path.basename(excel_file)}")
+        
         try:
-            df_top500 = pd.read_csv(top500_file, sep=';', encoding='utf-8-sig', low_memory=False, dtype=str)
-            df_top500.columns = df_top500.columns.str.strip().str.replace('\ufeff', '')
-            print(f"    Fichier {os.path.basename(top500_file)} chargé ({len(df_top500)} lignes). Colonnes: {df_top500.columns.tolist()}")
+            # Read Top 500 sheet
+            df_top500 = pd.read_excel(excel_file, sheet_name='Top 500', dtype=str)
+            df_top500.columns = df_top500.columns.str.strip()
+            print(f"    Feuille 'Top 500' chargée ({len(df_top500)} lignes). Colonnes: {df_top500.columns.tolist()}")
+            
             if ean_col_in_top_files not in df_top500.columns:
-                print(f"      ATTENTION: Colonne '{ean_col_in_top_files}' non trouvée dans {os.path.basename(top500_file)}")
-            if codemeti_col_in_top_files not in df_top500.columns: # Vérifier le nom corrigé
-                 print(f"      ATTENTION: Colonne '{codemeti_col_in_top_files}' non trouvée dans {os.path.basename(top500_file)}")
+                print(f"      ATTENTION: Colonne '{ean_col_in_top_files}' non trouvée dans 'Top 500'")
+            if codemeti_col_in_top_files not in df_top500.columns:
+                print(f"      ATTENTION: Colonne '{codemeti_col_in_top_files}' non trouvée dans 'Top 500'")
+            
         except Exception as e:
-            print(f"    ERREUR (calc_top): Impossible de lire {os.path.basename(top500_file)}: {e}")
-    else:
-        print(f"    ATTENTION (calc_top): Fichier {os.path.basename(top500_file)} non trouvé à {top500_file}.")
-
-    if os.path.exists(top3000_file):
+            print(f"    ERREUR: Impossible de lire la feuille 'Top 500': {e}")
+            df_top500 = pd.DataFrame()
+        
         try:
-            df_top3000 = pd.read_csv(top3000_file, sep=';', encoding='utf-8-sig', low_memory=False, dtype=str)
-            df_top3000.columns = df_top3000.columns.str.strip().str.replace('\ufeff', '')
-            print(f"    Fichier {os.path.basename(top3000_file)} chargé ({len(df_top3000)} lignes). Colonnes: {df_top3000.columns.tolist()}")
+            # Read Top 3000 sheet
+            df_top3000 = pd.read_excel(excel_file, sheet_name='Top 3000', dtype=str)
+            df_top3000.columns = df_top3000.columns.str.strip()
+            print(f"    Feuille 'Top 3000' chargée ({len(df_top3000)} lignes). Colonnes: {df_top3000.columns.tolist()}")
+            
             if ean_col_in_top_files not in df_top3000.columns:
-                print(f"      ATTENTION: Colonne '{ean_col_in_top_files}' non trouvée dans {os.path.basename(top3000_file)}")
-            if codemeti_col_in_top_files not in df_top3000.columns: # Vérifier le nom corrigé
-                 print(f"      ATTENTION: Colonne '{codemeti_col_in_top_files}' non trouvée dans {os.path.basename(top3000_file)}")
+                print(f"      ATTENTION: Colonne '{ean_col_in_top_files}' non trouvée dans 'Top 3000'")
+            if codemeti_col_in_top_files not in df_top3000.columns:
+                print(f"      ATTENTION: Colonne '{codemeti_col_in_top_files}' non trouvée dans 'Top 3000'")
+            
         except Exception as e:
-            print(f"    ERREUR (calc_top): Impossible de lire {os.path.basename(top3000_file)}: {e}")
+            print(f"    ERREUR: Impossible de lire la feuille 'Top 3000': {e}")
+            df_top3000 = pd.DataFrame()
+            
     else:
-        print(f"    ATTENTION (calc_top): Fichier {os.path.basename(top3000_file)} non trouvé à {top3000_file}.")
-
+        print(f"    ERREUR (calc_top): Aucun fichier Excel correspondant trouvé avec le motif: {excel_pattern}")
+        print(f"    Recherche dans le répertoire: {script_dir}")
+        # Fallback: try direct filename
+        direct_excel_file = os.path.join(script_dir, "SQF Outil Lissage Approvisionnements V15-6-11.xlsm")
+        if os.path.exists(direct_excel_file):
+            print(f"    Fichier Excel trouvé directement: {direct_excel_file}")
+            try:
+                df_top500 = pd.read_excel(direct_excel_file, sheet_name='Top 500', dtype=str)
+                df_top500.columns = df_top500.columns.str.strip()
+                df_top3000 = pd.read_excel(direct_excel_file, sheet_name='Top 3000', dtype=str)
+                df_top3000.columns = df_top3000.columns.str.strip()
+                print(f"    Données Excel chargées - Top 500: {len(df_top500)} lignes, Top 3000: {len(df_top3000)} lignes")
+            except Exception as e:
+                print(f"    ERREUR: Impossible de lire le fichier Excel: {e}")
+        else:
+            print(f"    ERREUR: Fichier Excel non trouvé à {direct_excel_file}")    # Build sets from Excel data
     top500_ean_set, top500_code_set = set(), set()
     if not df_top500.empty:
         if ean_col_in_top_files in df_top500.columns: 
-            top500_ean_set = set(df_top500[ean_col_in_top_files].astype(str).str.strip().str.replace(",", ".")) # regex=False n'est pas nécessaire ici
+            top500_ean_set = set(df_top500[ean_col_in_top_files].astype(str).str.strip().str.replace(",", "."))
         if codemeti_col_in_top_files in df_top500.columns: 
             top500_code_set = set(df_top500[codemeti_col_in_top_files].astype(str).str.strip())
 
@@ -156,6 +179,9 @@ def calc_top(df):
             top3000_ean_set = set(df_top3000[ean_col_in_top_files].astype(str).str.strip().str.replace(",", "."))
         if codemeti_col_in_top_files in df_top3000.columns: 
             top3000_code_set = set(df_top3000[codemeti_col_in_top_files].astype(str).str.strip())
+    
+    print(f"    Sets créés - Top 500: {len(top500_ean_set)} EAN, {len(top500_code_set)} Code Méti")
+    print(f"    Sets créés - Top 3000: {len(top3000_ean_set)} EAN, {len(top3000_code_set)} Code Méti")
     
     ean_col_to_use = None
     if 'Ean_13' in df.columns: ean_col_to_use = 'Ean_13' 
@@ -234,55 +260,19 @@ if __name__ == "__main__":
         print("\nATTENTION MAJEURE: MacroParam.py non chargé. Valeurs par défaut utilisées.\n")
 
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_test_dir = os.path.join(current_script_dir, 'CSV') # Vos fichiers Top doivent être ici
     
-    top500_file_path = os.path.join(csv_test_dir, 'Top_500.csv')
-    top3000_file_path = os.path.join(csv_test_dir, 'Top_3000.csv')
-    ean_col_in_top_files = 'EAN Final' 
-    codemeti_col_in_top_files = 'Code Méti' # Ou 'Code M�ti' si c'est votre en-tête réel
-
-    # Vérifier si le dossier CSV existe, sinon le créer (utile si Top_500/3000 sont créés par démo)
-    if not os.path.exists(csv_test_dir):
-        os.makedirs(csv_test_dir)
-        print(f"Dossier {csv_test_dir} créé.")
-
-    # Créer Top_500.csv de démo SEULEMENT s'il n'existe pas
-    if not os.path.exists(top500_file_path):
-        print(f"ATTENTION: {top500_file_path} non trouvé. Création d'un fichier de démo.")
-        top500_demodata = {
-            ean_col_in_top_files: ['EAN_TOP500_DEMO1', '3270190000767'],
-            codemeti_col_in_top_files: ['CM_TOP500_DEMO1', '18087_TOP500_DEMO'],
-            'AutreColonne': ['infoA', 'infoB']
-        }
-        pd.DataFrame(top500_demodata).to_csv(top500_file_path, sep=';', index=False, encoding='latin1')
-        print(f"  Fichier de démo {os.path.basename(top500_file_path)} créé.")
-    else:
-        print(f"Utilisation du fichier existant: {top500_file_path}")
-
-    # Créer Top_3000.csv de démo SEULEMENT s'il n'existe pas
-    if not os.path.exists(top3000_file_path):
-        print(f"ATTENTION: {top3000_file_path} non trouvé. Création d'un fichier de démo.")
-        top3000_demodata = {
-            ean_col_in_top_files: ['EAN_TOP3000_DEMO1'],
-            codemeti_col_in_top_files: ['CM_TOP3000_DEMO1'],
-            'AutreColonne': ['infoC']
-        }
-        pd.DataFrame(top3000_demodata).to_csv(top3000_file_path, sep=';', index=False, encoding='latin1')
-        print(f"  Fichier de démo {os.path.basename(top3000_file_path)} créé.")
-    else:
-        print(f"Utilisation du fichier existant: {top3000_file_path}")
-
+    # Note: Les fichiers Top_500.csv et Top_3000.csv seront créés automatiquement 
+    # par calc_top() s'ils n'existent pas
+    
     test_input_file = os.path.join(current_script_dir, "initial_merged_predictions.csv")
-    # ... (le reste du code pour créer init_merged_predictions.csv s'il n'existe pas,
-    #      puis appeler get_processed_data et faire les vérifications reste le même) ...
 
     if not os.path.exists(test_input_file):
         print(f"ATTENTION: Fichier de test d'entrée '{test_input_file}' non trouvé.")
         demo_init_data = {
             'CLASSE_STOCKAGE': ["1060", "1061", "1070", "1060", "1062", "1080"], 
             'DATE_LIVRAISON_V2': ["2025-05-22", "2025-05-22", "2025-05-22", "2025-05-21", "2025-05-21", "2025-05-22"], 
-            'Ean_13': ['EAN_TOP500_TEST_INIT', 'EAN_TOP3000_TEST_INIT', 'EAN_AUTRE_TEST', '3270190000767', 'EAN_SHOULD_BE_OTHER', 'EAN_XYZ_IN_TOP3000'],
-            'CODE_METI': ['CM_TOP500_TEST_INIT', 'CM_TOP3000_TEST_INIT', 'CM_AUTRE_TEST', '18087', 'CM_SHOULD_BE_OTHER', 'CM_ABC_IN_TOP3000']
+            'Ean_13': ['EAN_TOP500_DEMO1', 'EAN_TOP3000_DEMO1', 'EAN_AUTRE_TEST', '3270190000767', 'EAN_SHOULD_BE_OTHER', 'EAN_XYZ_IN_TOP3000'],
+            'CODE_METI': ['CM_TOP500_DEMO1', 'CM_TOP3000_DEMO1', 'CM_AUTRE_TEST', '18087_TOP500_DEMO', 'CM_SHOULD_BE_OTHER', 'CM_ABC_IN_TOP3000']
         }
         pd.DataFrame(demo_init_data).to_csv(test_input_file, sep=';', index=False, encoding='latin1')
         print(f"Fichier de démo '{test_input_file}' créé. Veuillez le vérifier et relancer.")
@@ -303,53 +293,3 @@ if __name__ == "__main__":
     else:
         print("Aucune des colonnes de débogage spécifiées n'a été trouvée dans le DataFrame traité.")
 
-
-    print("\nVérifications attendues (adaptez expected_tops à VOS fichiers Top_500/3000 et init_merged_predictions):")
-    # IMPORTANT: Adaptez ce dictionnaire à ce que vous attendez de VOS fichiers
-    expected_tops = {
-        # Mettez ici des EAN ou CODE_METI de votre init_merged_predictions.csv
-        # et le 'Top' attendu basé sur VOS Top_500.csv et Top_3000.csv
-        'EAN_TOP500_TEST_INIT': 'top 500', 
-        'CM_TOP3000_TEST_INIT': 'top 3000',
-        'EAN_AUTRE_TEST': 'autre',
-        '3270190000767': 'top 500', # Si cet EAN est dans votre Top_500.csv
-        'EAN_XYZ_IN_TOP3000': 'top 3000' # Si cet EAN est dans votre Top_3000.csv
-    }
-    # ... (le reste de la boucle de vérification) ...
-    correct_matches = 0
-    total_verifiable = 0
-
-    for idx, row in df_processed_from_file.iterrows():
-        ean = str(row.get('Ean_13','')).strip().replace(",",".")
-        if ean.endswith('.0'): ean = ean[:-2]
-        code_meti = str(row.get('CODE_METI','')).strip()
-        if code_meti.endswith('.0'): code_meti = code_meti[:-2]
-        top_calcul = row.get('Top')
-        
-        attendu = 'autre' 
-        key_used_for_expected = None
-
-        if ean_col_in_top_files and ean in expected_tops:
-            attendu = expected_tops[ean]
-            key_used_for_expected = f"EAN: {ean}"
-        elif codemeti_col_in_top_files and code_meti in expected_tops: 
-            attendu = expected_tops[code_meti]
-            key_used_for_expected = f"CODE_METI: {code_meti}"
-        
-        if key_used_for_expected:
-            total_verifiable += 1
-            if top_calcul == attendu:
-                print(f"  OK: {key_used_for_expected} -> Top '{top_calcul}' (Attendu '{attendu}')")
-                correct_matches +=1
-            else:
-                print(f"  KO: {key_used_for_expected} -> Top '{top_calcul}' (ATTENTION: Attendu '{attendu}')")
-        elif top_calcul == 'autre':
-            pass # Correct si non dans expected_tops et classé 'autre'
-            # print(f"  INFO: EAN '{ean}' / CODE_METI '{code_meti}' -> Top '{top_calcul}' (Correctement 'autre' car non dans expected_tops)")
-        else:
-            print(f"  KO: EAN '{ean}' / CODE_METI '{code_meti}' -> Top '{top_calcul}' (ATTENTION: Devrait être 'autre' car non dans expected_tops)")
-            
-    if total_verifiable > 0:
-        print(f"\nTotal des vérifications basées sur expected_tops: {correct_matches}/{total_verifiable} correctes.")
-    else:
-        print("\nAucune clé de expected_tops n'a été trouvée dans les données de test pour vérification. Vérifiez le contenu de expected_tops et de init_merged_predictions.csv.")

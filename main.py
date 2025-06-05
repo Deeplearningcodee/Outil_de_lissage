@@ -123,9 +123,11 @@ for col in date_cols:
 print("Calculating final predictions...")
 merged_df = PrevFinal.get_processed_data(merged_df)
 
-# 4.6 Calculate supply multiplier factors
-print("Calculating supply multiplier factors...")
-merged_df = FacteurAppro.get_processed_data(merged_df) 
+# NOTE: Call to FacteurAppro moved to after stock_marchand_df merge (see step 4.76.1)
+# # 4.6 Calculate supply multiplier factors
+# print("Calculating supply multiplier factors...")
+# merged_df = FacteurAppro.get_processed_data(merged_df) 
+
 # 4.7 Calculate product types and top categories
 print("Calculating product types and top categories...")
 merged_df = TypeProduits.get_processed_data(merged_df) 
@@ -172,11 +174,13 @@ if 'stock_marchand_df' in locals() and not stock_marchand_df.empty:
             else:
                 merged_df[col] = merged_df[col].fillna('')
 
+# 4.76.1 Calculate supply multiplier factors (MOVED HERE)
+print("Calculating supply multiplier factors...")
+merged_df = FacteurAppro.get_processed_data(merged_df) 
 
 # 4.77 Add Nb Jours Commande Max column
 print("Adding Nb Jours Commande Max column...")
 merged_df = NbJoursCommandeMax.get_processed_data(merged_df)
-
 
 
 # 4.8 Calculate Commande Finale sans mini ni arrondi SM à 100%
@@ -213,7 +217,7 @@ print(f"Loaded PDC_Sim input with {len(df_pdc_sim_input)} rows for optimization"
 
 # Run corrected VBA optimization using the processed merged_df as detail data
 df_pdc_sim_optimized = vba_logic_fixed.run_vba_optimization_fixed(
-    df_pdc_sim_input, merged_df 
+    df_pdc_sim_input, merged_df
 )
 
 # Save optimized results to the expected filename
@@ -266,7 +270,6 @@ print(f"Columns in merged file: {merged_df.columns.tolist()}")
 # Display a sample of the merged data
 print("\nSample of merged data:")
 print(merged_df.head(5))
-
 
 
 

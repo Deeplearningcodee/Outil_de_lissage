@@ -523,7 +523,7 @@ def calculate_commande_finale_sans_mini_ni_arrondi(df): # BO
                 scenario2 = max(0.0, (sm_final + prev_l1_l2) * facteur_appro_bu + ajustement2)
                 
                 quantite_stock_max_scenarios = min(scenario1, scenario2)
-        
+            
             # MIN(CC2, quantite_stock_max_scenarios)
             valeur_avant_max_besoin_net = min(cmd_max_cc, quantite_stock_max_scenarios)
             

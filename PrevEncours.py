@@ -15,12 +15,6 @@ if not detail_files:
 # On prend le premier match
 DETAIL_CSV = detail_files[0]
 
-# Pattern pour le fichier prévisions
-prev_pattern  = os.path.join(PREV_FOLDER, '*Previsions-B2C*.csv')
-prev_files    = glob.glob(prev_pattern)
-if not prev_files:
-    raise FileNotFoundError(f"Aucun fichier trouvé pour le pattern : {prev_pattern}")
-LONGTERME_CSV = prev_files[0]
 
 
 
@@ -45,12 +39,20 @@ def get_processed_data():
 
     # in folder Livraisons_Client_A_Venir
     Encours_FOLDER="Livraisons_Client_A_Venir"
-
+    #use glob to find the file
+    liv_pattern = os.path.join(Encours_FOLDER, '*Livraisons_AllMags_A_Venir.csv')
+    liv_files   = glob.glob(liv_pattern)
+    if not liv_files:
+        raise FileNotFoundError(f"Aucun fichier trouvé pour le pattern : {liv_pattern}")
+    # On prend le premier match
+    LIV_CSV = liv_files[0]
+    # Charger le fichier de livraisons
     df_liv = pd.read_csv(
-        os.path.join(Encours_FOLDER, "PPC_SQF_Livraisons_AllMags_A_Venir.csv"),
+        LIV_CSV,
         sep=';', encoding='latin1', engine='python',
         parse_dates=['DATE_Livraison'], dayfirst=True
     )
+
     # Normaliser clé
     if 'CDBASE' in df_liv.columns:
         df_liv.rename(columns={'CDBASE':'CODE_METI'}, inplace=True)

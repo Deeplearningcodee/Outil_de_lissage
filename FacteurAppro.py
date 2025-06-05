@@ -4,10 +4,30 @@ import os
 import glob
 from MacroParam import get_param_value # MODIFIED: Import get_param_value instead of facteur_appro_max_frais
 
-# Chemins vers les fichiers source
-FACTEUR_FAM_CSV = os.path.join('Facteur_Appro', 'FacteurAppro.csv')
-FACTEUR_SF_CSV = os.path.join('Facteur_Appro', 'FacteurApproSF.csv')
-FACTEUR_ART_CSV = os.path.join('Facteur_Appro', 'FacteurApproArt.csv')
+# Determine the directory of the current script
+try:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    # Fallback if __file__ is not defined (e.g., in some interactive environments)
+    SCRIPT_DIR = os.getcwd()
+    print(f"Avertissement: __file__ non défini, utilisation de CWD: {SCRIPT_DIR} comme base pour les chemins CSV.")
+
+# Define the absolute path to the Facteur_Appro directory
+FACTEUR_APPRO_DIR = os.path.join(SCRIPT_DIR, 'Facteur_Appro')
+
+# Ensure the Facteur_Appro directory exists, create if not
+if not os.path.exists(FACTEUR_APPRO_DIR):
+    try:
+        os.makedirs(FACTEUR_APPRO_DIR)
+        print(f"Création du répertoire: {FACTEUR_APPRO_DIR}")
+    except Exception as e:
+        print(f"Erreur lors de la création du répertoire {FACTEUR_APPRO_DIR}: {e}")
+
+
+# Chemins vers les fichiers source - MODIFIED to be absolute paths
+FACTEUR_FAM_CSV = os.path.join(FACTEUR_APPRO_DIR, 'FacteurAppro.csv')
+FACTEUR_SF_CSV = os.path.join(FACTEUR_APPRO_DIR, 'FacteurApproSF.csv')
+FACTEUR_ART_CSV = os.path.join(FACTEUR_APPRO_DIR, 'FacteurApproArt.csv')
 
 def load_facteur_famille(file_path): # MODIFIED: Added file_path argument
     """
@@ -49,7 +69,7 @@ def load_facteur_famille(file_path): # MODIFIED: Added file_path argument
         
         new_factors.fillna(1.0, inplace=True) # Default for errors or unhandled cases
         df['Facteur Multiplicatif'] = new_factors
-        
+ 
         return df
     except Exception as e:
         print(f"Erreur lors du chargement du fichier {file_path}: {e}") # MODIFIED: Use file_path in error message
@@ -95,7 +115,7 @@ def load_facteur_sous_famille(file_path): # MODIFIED: Added file_path argument
 
         new_factors.fillna(1.0, inplace=True) # Default for errors or unhandled cases
         df['Facteur Multiplicatif'] = new_factors
-        
+       
         return df
     except Exception as e:
         print(f"Erreur lors du chargement du fichier {file_path}: {e}") # MODIFIED: Use file_path in error message
@@ -112,7 +132,7 @@ def load_facteur_article(file_path): # MODIFIED: Added file_path argument
             encoding='latin1',
             engine='python'
         )
-        
+      
         # Renommer les colonnes pour correspondre aux formules Excel
         df = df.rename(columns={
             'EAN': 'Ean_13',
@@ -141,7 +161,7 @@ def load_facteur_article(file_path): # MODIFIED: Added file_path argument
 
         new_factors.fillna(1.0, inplace=True) # Default for errors or unhandled cases
         df['Facteur Multiplicatif'] = new_factors
-        
+       
         return df
     except Exception as e:
         print(f"Erreur lors du chargement du fichier {file_path}: {e}") # MODIFIED: Use file_path in error message
@@ -221,17 +241,34 @@ def update_facteur_csvs_from_excel():
         except Exception as e:
             print(f"Erreur lors de la mise à jour de {item['csv_path']} à partir de la feuille '{item['sheet_name']}' du fichier '{excel_filepath}': {e}")
 
-def apply_facteur_appro(df, base_path="Facteur_Appro"):
+def apply_facteur_appro(df): # MODIFIED: Removed base_path argument
     """
     Applique les facteurs d'approvisionnement au DataFrame principal.
+    Utilise les chemins absolus globaux pour charger les fichiers CSV.
     """
-    # Récupérer la valeur de facteur_appro_max_frais en utilisant get_param_value
-    facteur_appro_max_frais = get_param_value("facteur_appro_max_frais", 1.2) # MODIFIED: Call get_param_value
+    print("--- FacteurAppro.py: Inside apply_facteur_appro ---")
+    relevant_cols = ['CODE_METI', 'Casse Prev C1-L2', 'FAMILLE_HYPER', 'SS_FAMILLE_HYPER', 'Ean_13', 'Classe_Stockage']
+    cols_to_print = [col for col in relevant_cols if col in df.columns]
+    if 'CODE_METI' not in cols_to_print and 'CODE_METI' not in df.columns: # Add CODE_METI if not present for context
+        pass # Or df['CODE_METI'] = 'TEMP_ID_' + pd.Series(df.index).astype(str) if you need an identifier
 
-    # Charger les facteurs
-    df_famille = load_facteur_famille(os.path.join(base_path, "FacteurAppro.csv"))
-    df_sous_famille = load_facteur_sous_famille(os.path.join(base_path, "FacteurApproSF.csv"))
-    df_article = load_facteur_article(os.path.join(base_path, "FacteurApproArt.csv"))
+    print("--- FacteurAppro.py: Input DataFrame (merged_df) head, relevant columns ---")
+    if not df.empty and cols_to_print:
+        print(df[cols_to_print].head())
+    elif df.empty:
+        print("Input DataFrame (merged_df) is empty.")
+    else:
+        print(f"Input DataFrame (merged_df) does not contain any of the relevant columns for printing: {relevant_cols}")
+        print(f"Available columns: {df.columns.tolist()}")
+
+
+    # Récupérer la valeur de facteur_appro_max_frais en utilisant get_param_value
+    facteur_appro_max_frais = get_param_value("facteur_appro_max_frais", 1.2)
+
+    # Charger les facteurs en utilisant les chemins absolus définis globalement
+    df_famille = load_facteur_famille(FACTEUR_FAM_CSV)
+    df_sous_famille = load_facteur_sous_famille(FACTEUR_SF_CSV)
+    df_article = load_facteur_article(FACTEUR_ART_CSV)
 
     # Vérifier que la colonne 'Casse Prev C1-L2' existe
     if 'Casse Prev C1-L2' not in df.columns:
@@ -350,7 +387,7 @@ def get_processed_data(merged_df=None):
         return pd.DataFrame()
     
     # Appliquer les facteurs d'approvisionnement
-    result_df = apply_facteur_appro(merged_df)
+    result_df = apply_facteur_appro(merged_df) # MODIFIED: Call updated function without base_path
     
     return result_df
 
