@@ -177,7 +177,7 @@ def update_facteur_lissage_besoin_brut_from_optim(merged_df): # merged_df est le
                  merged_df['Facteur multiplicatif Lissage besoin brut'] = 1.0
             return merged_df
 
-        # Assurer les types pour la fusion dans merged_df (normalement déjà fait par load_data de optimisation_globale)
+        # Assurer les types pour la fusion dans merged_df 
         merged_df[col_tpv2_detail] = merged_df[col_tpv2_detail].astype(str).str.strip().str.lower()
         merged_df[col_jour_detail] = pd.to_datetime(merged_df[col_jour_detail], errors='coerce')
         

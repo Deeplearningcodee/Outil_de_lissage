@@ -136,7 +136,7 @@ def create_parametres_commandes_appros_table_internal():
             boost_pdc_param_init = 0.0 
             jkl_param_init = 1.0 # Ces JKL sont ceux affichés dans la section paramètre de PDC_Sim
             
-            # Les Limites O,P,Q,S,T,U sont des entrées utilisateur (lues plus tard dans optimisation_globale)
+            # Les Limites O,P,Q,S,T,U sont des entrées utilisateur 
             # Pour la génération initiale de PDC_Sim, elles sont à 100% (ou lues si fichier existe)
             opqstu_lim_init_basse = 1.0 # Limite Basse initiale
             opqstu_lim_init_haute = 1.0 # Limite Haute initiale pour la génération,

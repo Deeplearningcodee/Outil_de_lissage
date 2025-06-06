@@ -204,7 +204,6 @@ def calculate_cg_commande_optimisee_en_colis(df, df_qtemaxi_map=None): # Colonne
     if df_qtemaxi_map is None:
         script_dir = os.path.dirname(__file__)
         # Le dossier CSV est relatif au script actuel (CommandeFinale.py)
-        # Si optimisation_globale.py est dans un autre dossier, ce chemin pourrait ne pas être bon
         # Il est plus sûr de passer le chemin du dossier CSV ou de le définir globalement
         csv_folder_path = os.path.join(script_dir, "CSV") 
         qtemaxi_file_path = os.path.join(csv_folder_path, "Qtite_Maxi.csv") 

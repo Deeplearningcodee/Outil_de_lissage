@@ -30,39 +30,16 @@ three_weeks_ago = reference_date - pd.Timedelta(days=21)
 
 # 1. Load stock merchant data
 print("Loading stock merchant data...")
-# Méthode précédente
-# stock_df = pd.read_csv(
-#     'stkmarchand_CES880.csv',
-#     sep=';',
-#     header=None,
-#     names=['CODE_METI', 'SM_final']
-# )
 
-# Nouvelle méthode: importer depuis StockMarchand.py
+
+# importer depuis StockMarchand.py
 
 import StockMarchand
 stock_marchand_df = StockMarchand.get_stock_marchand_data()
 
 # importer les Exclusions 
-
 exclusion_df = Exclusion.copy_exclusion_sheet()
 
-# Si le chargement du stock marchand a échoué, revenir à l'ancienne méthode
-# if stock_marchand_df is None or stock_marchand_df.empty:
-#     print("Fallback: Chargement des données de stock marchand depuis stkmarchand_CES880.csv")
-#     stock_df = pd.read_csv(
-#         'stkmarchand_CES880.csv',
-#         sep=';',
-#         header=None,
-#         names=['CODE_METI', 'SM_final']
-#     )
-# else:
-#     print(f"Stock marchand chargé avec succès: {len(stock_marchand_df)} lignes")
-#     # Créer un DataFrame compatible avec le reste du code
-#     stock_df = pd.DataFrame({
-#         'CODE_METI': stock_marchand_df['CODE_METI'],
-#         'SM_final': stock_marchand_df['SM Final']
-#     })
 
 # 2. Get data from each module in the desired order
 print("Processing Detail RAO data...")
@@ -87,16 +64,10 @@ encours_df = PrevEncours.get_processed_data()
 print("Processing TS values...")
 ts_df = Ts.get_processed_data()
 
-# print("Loading EAN mapping data...")
-# ean_df = EanMapping.get_processed_data()
 
 # 3. Merge all dataframes by CODE_METI
 print("Merging all data...")
-# Start with the RAO detail data as the base
-# if rao_df is not None and not rao_df.empty:
-#     merged_df = rao_df.copy()
-# else:
-#     merged_df = stock_df.copy()
+
 
 merged_df = rao_df.copy() 
 
@@ -129,10 +100,7 @@ for col in date_cols:
 print("Calculating final predictions...")
 merged_df = PrevFinal.get_processed_data(merged_df)
 
-# NOTE: Call to FacteurAppro moved to after stock_marchand_df merge (see step 4.76.1)
-# # 4.6 Calculate supply multiplier factors
-# print("Calculating supply multiplier factors...")
-# merged_df = FacteurAppro.get_processed_data(merged_df) 
+
 
 # 4.7 Calculate product types and top categories
 print("Calculating product types and top categories...")
@@ -211,18 +179,17 @@ Optimisation.generate_complete_pdc_sim_excel(
 
 )
 # --- VBA-STYLE OPTIMIZATION LOGIC ---
-# Replace optimisation_globale.py with VBA logic implementation
 print("Running VBA-style optimization logic...")
 
 # Import corrected VBA logic
-import vba_logic_fixed
+import optimisation_globale as optimisation_globale
 
 # Load the PDC_Sim input data that was just generated
 df_pdc_sim_input = pd.read_excel('PDC_Sim_Input_For_Optim.xlsx')
 print(f"Loaded PDC_Sim input with {len(df_pdc_sim_input)} rows for optimization")
 
-# Run corrected VBA optimization using the processed merged_df as detail data
-df_pdc_sim_optimized = vba_logic_fixed.run_vba_optimization_fixed(
+# Run VBA optimization using the processed merged_df as detail data
+df_pdc_sim_optimized = optimisation_globale.run_vba_optimization_fixed(
     df_pdc_sim_input, merged_df
 )
 
